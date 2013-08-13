@@ -1,5 +1,5 @@
 <Datatype>
-# Tree a = Leaf | Node a (Tree a) (Tree a)
+# Tree a = Leaf | SingleNode (Tree a) | Node a (Tree a) (Tree a)
 <Datatype>
 <Sym>
 # (++)
