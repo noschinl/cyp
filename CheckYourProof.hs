@@ -11,6 +11,7 @@ Copyright by Dominik Durner / Technische Universität München - Institute for I
 Check Your Proof (CYP)
 - What is CYP?
 		Check your Proof is a functional program for students to check the correctness of their proofs by induction over simple data structures (e.g. List, Trees).
+
 noschinl = Wiweni64
 -}
 
@@ -19,17 +20,18 @@ type VariableList = [String]
 
 proof file =
   do
-    content <- readFile file
-    (datatype, goals) <- getDataType content "<datatype>"
-    sym <- varToConst $ getSym content "<Sym>"
-    (func, globalConstList) <- getFunc content "<Def>" sym
-    lemmata <- getCyp content "<Lemma>" globalConstList
-    induction <- getCyp content "<Induction>" globalConstList
-    hypothesis <- getCyp content "<Hypothesis>" globalConstList
-    (over, globalConstInductList) <- getOver content "<Over>" globalConstList
-    basecase <- getCyp content "<BaseCase>" globalConstInductList -- lemmata induction
-    step <- getCyp content "<Step>" globalConstInductList-- (lemmata++hypothesis) induction
-    return (datatype, goals, over, globalConstInductList)
+		content <- readFile file
+		(datatype, goals) <- getDataType content "<Datatype>"
+		sym <- varToConst $ getSym content "<Sym>"
+		(func, globalConstList) <- getFunc content "<Def>" sym
+		lemmata <- getCyp content "<Lemma>" globalConstList
+		induction <- getCyp content "<Induction>" globalConstList
+		hypothesis <- getCyp content "<Hypothesis>" globalConstList
+		over <- getOver content "<Over>" globalConstList
+		basecase <- getCyp content "<BaseCase>" globalConstList 
+		step <- getCyp content "<Step>" globalConstList
+		(newlemma, variable, goals, static) <- getFirstStep induction step over datatype
+		return ( newlemma, goals, static)
 
 data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Literal | IHConst String
   deriving (Show, Eq)
@@ -156,18 +158,57 @@ transformVartoConst (Application (Const a) cyp) = Application (Const a) (transfo
 transformVartoConst (Application cypCurry cyp) = Application (transformVartoConst cypCurry) (transformVartoConst cyp)
 transformVartoConst (Literal a) = Literal a
 
-{-
-Input: Induction Thesis -> First Step -> Over -> Case -> (First Step, new Hyptoheses)
--}
-parseFirstStep :: Cyp -> Cyp -> Variable -> TCyp -> (Cyp, [Cyp])
-parseFirstStep (Variable n) v tcyp | v == Variable n = undefined
-																	 | otherwise = Variable n
-parseFirstStep (Literal l) _ _ = Literal l
-parseFirstStep (Const c) _ _ = Const c
-parseFirstStep (Application (Variable a) cyp) v tcyp | v == Variable a = undefined
-																	 									 | otherwise = Application (Variable a) (parseFirstStep cyp v tcyp)
-parseFirstStep (Application (Const a) cyp) v tcyp = Application (Const a) (parseFirstStep cyp v tcyp)
-parseFirstStep (Application cypCurry cyp) v tcyp = Application (parseFirstStep cypCurry v tcyp) (parseFirstStep cyp v tcyp)
+
+mapGoals :: [[Cyp]] -> [[Cyp]] -> [String] -> [TCyp] -> [([Cyp], [TCyp], [Cyp])]
+mapGoals theses firststeps over goals = concatMap (\y -> map (\x -> goalLookup x y (head over) x) goals) (parseFirstStep (head $ head theses) (head $ head firststeps) (head over))
+
+mapFirstStep :: [[Cyp]] -> [[Cyp]] -> [String] -> [TCyp] -> ([[Cyp]], [Cyp], [TCyp], [Cyp])
+mapFirstStep theses firststeps over goals = (map (\x -> map (\y -> createNewLemmata y (head over) x) (head theses)) (concatMap fst3 (mapGoals theses firststeps over goals)), concatMap fst3 (mapGoals theses firststeps over goals), concatMap snd3 (mapGoals theses firststeps over goals), concatMap thrd3 (mapGoals theses firststeps over goals))
+
+
+parseFirstStep :: Cyp -> Cyp -> String -> [Cyp]
+parseFirstStep (Variable n) m over | over == n =  [m]
+                                   | otherwise = []
+parseFirstStep (Literal l) _ _ = []
+parseFirstStep (Const c) _ _  = []
+parseFirstStep (Application (Variable a) cyp) (Application m thesiscyp) over | over == a = [m]
+                                                                             | otherwise = parseFirstStep cyp thesiscyp over
+parseFirstStep (Application (Const a) cyp) (Application (Const b) cypthesis) over = parseFirstStep cyp cypthesis over
+parseFirstStep (Application cypCurry cyp) (Application cypthesisCurry cypthesis) over = (parseFirstStep cypCurry cypthesisCurry over) ++ (parseFirstStep cyp cypthesis over)
+parseFirstStep _ _ _ = []
+
+
+goalLookup :: TCyp -> Cyp -> String -> TCyp -> ([Cyp], [TCyp], [Cyp])
+goalLookup (TApplication (TConst a) tcyp) (Application (Const b) cyp) over x | a == b = goalLookup tcyp cyp over x
+																																						 | otherwise = ([], [x], [])
+goalLookup (TApplication tcypcurry tcyp) (Application cypcurry cyp)  over x 
+	| length (snd3 (goalLookup tcyp cyp over x) ++ snd3 (goalLookup tcypcurry cypcurry over x)) == 0 = (fst3 (goalLookup tcyp cyp over x) ++ fst3 (goalLookup tcypcurry cypcurry over x), snd3 (goalLookup tcyp cyp over x) ++ snd3 (goalLookup tcypcurry cypcurry over x), thrd3 (goalLookup tcyp cyp over x) ++ thrd3 (goalLookup tcypcurry cypcurry over x))
+	| otherwise = ([], [], [])
+
+goalLookup (TConst a) (Const b) over x | a == b = ([], [], [])
+																		   | otherwise = ([], [x], [])
+goalLookup (TNRec a) (Variable b) _ _ = ([], [], [Variable b])
+goalLookup (TRec a) (Variable b) over x = ([Variable b], [], [Variable b])
+goalLookup (TRec a) (Const b) over x = ([Const b], [], [])
+goalLookup _ _ _  x = ([], [x], [])
+
+createNewLemmata :: Cyp -> String -> Cyp -> Cyp
+createNewLemmata (Application (Variable a) cyp) over b = Application (Variable a) (createNewLemmata cyp over b)
+createNewLemmata (Application (Const a) cyp) over b = Application (Const a) (createNewLemmata cyp over b)
+createNewLemmata (Application cypcurry cyp) over b =  Application (createNewLemmata cypcurry over b) (createNewLemmata cyp over b)
+createNewLemmata (Variable a) over (Const b) | over == a = Const b
+																		 				 | otherwise = Variable a
+createNewLemmata (Variable a) over (Variable b) | over == a = Const b
+																		 				 		| otherwise = Variable a
+createNewLemmata (Const a) over (Const b) | over == a = Const b
+																					| otherwise = Const a
+createNewLemmata (Const a) over (Variable b) | over == a = Const b
+																						 | otherwise = Const a
+createNewLemmata (Literal a) _ _ = Literal a
+
+getFirstStep thesis steps over goals =
+	do
+		return (mapFirstStep thesis steps over goals)
 
 getDataType content expression = 
   do
@@ -187,7 +228,7 @@ getSym content expression =
 getOver content expression global =
   do
     foo <- outterParse content expression
-    return (concat $ map getVariableList (innerParseLists foo), nub $ global ++ (concat $ map getVariableList (innerParseLists foo)))
+    return (concat $ map getVariableList (innerParseLists foo))
 
 getFunc content expression sym = 
   do
@@ -261,4 +302,8 @@ trim [] = []
 replace _ _ [] = []
 replace old new (x:xs) | isPrefixOf old (x:xs) = new ++ drop (length old) (x:xs)
         							 | otherwise = x : replace old new xs
+
+fst3 (a, _, _) = a
+snd3 (_, a, _) = a
+thrd3 (_, _, a) = a
 

@@ -1,16 +1,16 @@
-<datatype>
-# T b c = H b c | X (T b c) c 
-# Tree a = Leaf | Node a (Tree a) (Tree a)
+<Datatype>
 # [a] = [] | a : [a]
 # List a = Nil | Cons a (List a)
-<datatype>
+# T b c = H b c | X (T b c) c 
+# Tree a = Leaf | Node a (Tree a) (Tree a)
+<Datatype>
 <Sym>
 # (++)
 # (+)
 # tail
 <Sym>
 <Anmerkung> 
-Aufpassen bei Infix Application! Kein (x) vergessen, mit x = Infix Application! 
+--Aufpassen bei Infix Application! Kein (x) vergessen, mit x = Infix Application! 
 <Anmerkung>
 <Def>
 # length (reverse:reverses) = 1 + length reverses
@@ -26,10 +26,10 @@ Aufpassen bei Infix Application! Kein (x) vergessen, mit x = Infix Application!
 # sum (map length ((map f xs))) = sum (map length xs)
 <Lemma>
 <Induction>
-length (reverse xs) = length xs
+length (reverse ys) = length ys
 <Induction>
 <Over>
-xs
+ys
 <Over>
 <BaseCase>
 length (reverse []) = length []
