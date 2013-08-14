@@ -9,7 +9,7 @@
 # reverse
 <Sym>
 <Def>
-
+head (a:(head (x:xs))) 
 <Def>
 <Lemma>
 

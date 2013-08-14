@@ -30,14 +30,54 @@ proof file =
 		basecase <- getCyp content "<BaseCase>" globalConstList -- lemmata induction
 		step <- getCyp content "<Step>" globalConstList -- (lemmata++hypothesis) induction
 		(newlemma, variable, datatype, static) <- getFirstStep induction step over datatype
-		return (newlemma, datatype, static)
+		proof <- getSteps (func ++ lemmata ++ newlemma) (map (transformVartoConst) (head step)) (Application (Const "length") (Application (Application (Const ":") (Const "x")) (Const "xs")))
+		return (proof)
 
-data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Literal | IHConst String
+data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Literal
   deriving (Show, Eq)
   
 data TCyp = TApplication TCyp TCyp | TConst String | TNRec String | TRec
 	deriving (Show, Eq)
+	
+	
+makeSteps rules (x:y:steps) aim 
+    | y `elem` fst (unzip (applyall x rules)) = "" ++ (makeSteps rules (y:steps) aim)
+    | otherwise = "Fehler :( : step " ++ printInfo x ++ " to " ++ printInfo  y
+makeSteps rules [x] aim 
+    | x == aim = "Erfolgreicher Beweis des aktuellen Goals"
+    | x /= aim = "Hier fehlt noch was"
+makeSteps _ _ _ = "Komischer Beweis :)"
 
+applyall step rules = concatMap (\rule -> concat $ nub [apply step x y | x <- rule, y <- rule]) rules 
+
+
+apply :: Cyp -> Cyp -> Cyp -> [(Cyp, [(Cyp, Cyp)])]
+apply step@(Application cc c) rule@(Application ccr cr) to = 
+    found ++ [(Application x c, y) | (x,y) <- apply cc (Application ccr cr) to] ++ [(Application cc x, y) | (x,y) <- apply c (Application ccr cr) to]
+	    where
+		    (fstt, sndt) = head $ apply cc ccr to
+		    (fstc, sndc) = head $ (apply c cr to)
+		    found
+			    | (length (apply c cr to) > 0) && (length (apply cc ccr to) > 0) = [(edit to (sndt ++ sndc), (sndt ++ sndc))]
+			    | otherwise = []
+apply (Literal a) (Literal b) _
+	| a == b = [(Literal a, [])]
+	| otherwise = []
+apply (Const a) (Const b) _
+	| a == b = [(Const a, [])]
+	| otherwise = []
+apply x (Variable b) _ = [(Variable b, [(Variable b, x)])]
+apply _ _ _ = []
+
+edit :: Cyp -> [(Cyp, Cyp)] -> Cyp
+edit (Application cypcurry cyp) x = Application (edit cypcurry x) (edit cyp x)
+edit (Const a) _ = (Const a)
+edit (Literal a) _ = (Literal a)
+edit (Variable a) x = extract (lookup (Variable a) x)
+	where
+		extract (Just n) = n
+		extract (Nothing) = (Variable a)
+	
 printCypEquoations [] = []
 printCypEquoations (x:xs) = [map printInfo x] ++ (printCypEquoations xs)
 
@@ -46,14 +86,12 @@ printRunnable (Application cypCurry cyp) = "(" ++ (printRunnable cypCurry) ++ " 
 printRunnable (Literal a) = translateLiteral a
 printRunnable (Variable a) = a
 printRunnable (Const a) = a
-printRunnable (IHConst a) = "'" ++ a
 
 printInfo :: Cyp -> String
 printInfo (Application cypCurry cyp) = "(" ++ (printInfo cypCurry) ++ " " ++ (printInfo cyp) ++ ")"
 printInfo (Literal a) = translateLiteral a
 printInfo (Variable a) = "?" ++ a
 printInfo (Const a) = a
-printInfo (IHConst a) = "'" ++ a
 
 getGoals :: [TCyp] -> TCyp -> [(String, TCyp)]
 getGoals xs goal = map (\x -> (getConstructorName x, getGoal x goal)) xs
@@ -87,8 +125,6 @@ getLists (InfixApp e1 (QVarOp i) e2) = (cs1 ++ cs2 ++ [translateQName i], vs1 ++
     where
         (cs1,vs1) = getLists e1
         (cs2,vs2) = getLists e2
-getLists (App (Var e1) e2) = (cs2 ++ [translateQName e1], vs2)
-    where (cs2,vs2) = getLists e2
 getLists (App e1 e2) = (cs1 ++ cs2, vs1 ++ vs2)
     where
         (cs1,vs1) = getLists e1
@@ -147,10 +183,10 @@ translateLiteral (PrimString c) = c
 true :: a -> b -> Bool
 true _ _ = True
 
+
 mapFirstStep :: [[Cyp]] -> [[Cyp]] -> [String] -> [(String, TCyp)] -> ([[Cyp]], [Cyp], [(String, TCyp)], [Cyp])
-mapFirstStep theses firststeps over goals = (map (\x -> map (\y -> createNewLemmata y (head over) x) (head theses)) concatf, concatf, concat smg, concat tmg)
+mapFirstStep theses firststeps over goals = (map (\x -> map (\y -> createNewLemmata y (head over) x) (head theses)) (concat fmg), concat fmg, concat smg, concat tmg)
 	where
-		concatf = concat fmg
 		(fmg, smg, tmg) = unzip3 mapGoals
 			where
 				mapGoals = concatMap (\z -> map (\(y,x) -> goalLookup x z (head over) (y,x)) goals) (parseFirstStep (head $ head theses) (head $ head firststeps) (head over))
@@ -194,7 +230,6 @@ createNewLemmata (Const a) over (Variable b)
 	| otherwise = Const a
 createNewLemmata (Literal a) _ _ = Literal a
 
-
 varToConst xs =
   do 
     cyp <- xs
@@ -206,11 +241,13 @@ transformVartoConst (Const v) = Const v
 transformVartoConst (Application cypCurry cyp) = Application (transformVartoConst cypCurry) (transformVartoConst cyp)
 transformVartoConst (Literal a) = Literal a
 
+getSteps rules steps aim =
+    do 
+        return (makeSteps rules steps aim)
 
 getFirstStep thesis steps over goals =
 	do
 		return (mapFirstStep thesis steps over goals)
-
 
 getDataType content expression = 
   do
