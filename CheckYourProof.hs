@@ -1,5 +1,6 @@
 module CheckYourProof where
 import Data.Char
+import Control.Monad
 import Text.Regex
 import Data.List
 import Language.Haskell.Exts.Parser 
@@ -17,6 +18,11 @@ Check Your Proof (CYP)
 type ConstList = [String]
 type VariableList = [String]
 
+testread file expression=
+    do
+       content <- readFile file
+       return (matchRegex (mkRegex (expression ++ "(.*?)" ++ expression))((deleteAll content isControl)))
+
 proof file =
 	do
 		content <- readFile file
@@ -27,12 +33,23 @@ proof file =
 		induction <- getCyp content "<Induction>" globalConstList
 		hypothesis <- getCyp content "<Hypothesis>" globalConstList
 		over <- getOver content "<Over>" globalConstList
-		basecase <- getCyp content "<BaseCase>" globalConstList -- lemmata induction
-		step <- getCyp content "<Step>" globalConstList -- (lemmata++hypothesis) induction
-		(newlemma, variable, datatype, static) <- getFirstStep induction step over datatype
-		proof <- getSteps (func ++ lemmata ++ newlemma) (map (transformVartoConst) (head step)) (Application (Const "length") (Application (Application (Const ":") (Const "x")) (Const "xs")))
+		proof <- getProof content globalConstList datatype over (func ++ lemmata) induction
 		return (proof)
+		
+		
+getProof content globalConstList datatype over rules induction =
+    do
+        cases <- sequence (map (\x -> getCyp content ("<" ++ fst x ++ ">") globalConstList) datatype)
+        proof <- sequence (map (\x -> makeProof induction x over datatype rules) cases)
+        return proof
 
+makeProof induction step over datatype rules=
+    do
+        (newlemma, variable, datatype, static) <- getFirstStep induction step over datatype
+        proof <- getSteps (rules ++ newlemma) (map (transformVartoConst) (head step)) (Application (Const "length") (Application (Application (Const ":") (Const "x")) (Const "xs")))
+        --ToDo
+        return (proof)
+        
 data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Literal
   deriving (Show, Eq)
   
@@ -125,6 +142,8 @@ getLists (InfixApp e1 (QVarOp i) e2) = (cs1 ++ cs2 ++ [translateQName i], vs1 ++
     where
         (cs1,vs1) = getLists e1
         (cs2,vs2) = getLists e2
+getLists (App (Var e1) e2) = (cs2 ++ [translateQName e1], vs2)
+    where (cs2,vs2) = getLists e2
 getLists (App e1 e2) = (cs1 ++ cs2, vs1 ++ vs2)
     where
         (cs1,vs1) = getLists e1

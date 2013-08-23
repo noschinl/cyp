@@ -1,5 +1,5 @@
 <Datatype>
-# [a] = [] | a : [a]
+# [a] = Nil | a : [a]
 # List a = Nil | Cons a (List a)
 # T b c = H b c | X (T b c) c 
 # Tree a = Leaf | Node a (Tree a) (Tree a)
@@ -15,9 +15,9 @@
 <Def>
 # length (reverse:reverses) = 1 + length reverses
 # length (x:xs) f = 1 `f` length xs
-# length [] = 0
+# length Nil = 0
 # reverse (x:xs) = (reverse xs) ++ [x]
-# reverse [] = []
+# reverse Nil = Nil
 <Def>
 <Lemma>
 # ys ++ [y] = (y:ys)
@@ -32,17 +32,17 @@ length (reverse ys) = length ys
 <Over>
 ys
 <Over>
-<BaseCase>
-length (reverse []) = length []
-<BaseCase>
+<Nil>
+length (reverse Nil) = length Nil
+<Nil>
 <Hypothesis>
 length (reverse xs) = length xs
 <Hypothesis>
-<Step>
+<:>
 length (reverse (x:xs)) =
 length (reverse xs ++ [x]) = 
 length (reverse xs) + length [x] =
 length xs + length [x] = 
 length (xs ++ [x]) =
 length (x:xs)
-<Step>
+<:>
