@@ -53,7 +53,7 @@ getProof content globalConstList datatype over rules induction =
 makeProof induction step over datatype rules=
     do
         (newlemma, variable, laststep, static) <- getFirstStep induction step over datatype
-        proof <- getSteps (rules ++ newlemma) (map (\x -> transformVartoConstList x variable) (head step)) (transformVartoConstList laststep variable)
+        proof <- getSteps (rules ++ newlemma) (map (\x -> transformVartoConstList x variable elem) (head step)) (transformVartoConstList laststep variable elem)
         return proof
 	
 	
@@ -266,17 +266,14 @@ varToConst xs =
     return (concatMap (map transformVartoConst) cyp)
 
 transformVartoConst :: Cyp -> Cyp
-transformVartoConst (Variable v) = Const v
-transformVartoConst (Const v) = Const v
-transformVartoConst (Application cypCurry cyp) = Application (transformVartoConst cypCurry) (transformVartoConst cyp)
-transformVartoConst (Literal a) = Literal a
+transformVartoConst x = transformVartoConstList x [] true
 
-transformVartoConstList :: Cyp -> [Cyp] -> Cyp
-transformVartoConstList (Variable v) list | (Variable v) `elem` list = Const v
-                                      | otherwise = Variable v
-transformVartoConstList (Const v) list = Const v
-transformVartoConstList (Application cypCurry cyp) list = Application (transformVartoConstList cypCurry list) (transformVartoConstList cyp list)
-transformVartoConstList (Literal a) list = Literal a
+transformVartoConstList :: Cyp -> [Cyp] -> (Cyp -> [Cyp] -> Bool) -> Cyp
+transformVartoConstList (Variable v) list f | f (Variable v) list = Const v
+                                            | otherwise = Variable v
+transformVartoConstList (Const v) _ _ = Const v
+transformVartoConstList (Application cypCurry cyp) list f = Application (transformVartoConstList cypCurry list f) (transformVartoConstList cyp list f)
+transformVartoConstList (Literal a) _ _ = Literal a
 
 getSteps rules steps aim =
     do 
