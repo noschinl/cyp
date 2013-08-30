@@ -41,7 +41,7 @@ proof file =
 		hypothesis <- getCyp content "<Hypothesis>" globalConstList
 		over <- getOver content "<Over>" globalConstList
 		proof <- getProof content globalConstList datatype over (func ++ lemmata) induction
-		return (proof)
+		return proof
 		
 		
 getProof content globalConstList datatype over rules induction =
@@ -53,7 +53,7 @@ getProof content globalConstList datatype over rules induction =
 makeProof induction step over datatype rules=
     do
         (newlemma, variable, laststep, static) <- getFirstStep induction step over datatype
-        proof <- getSteps (rules ++ newlemma) (map (\x -> transformVartoConstList x variable elem) (head step)) (transformVartoConstList laststep variable elem)
+        proof <- getSteps (rules ++ newlemma) (map (\x -> transformVartoConstList x static elem) (head step)) (transformVartoConstList laststep static elem)
         return proof
 	
 	
