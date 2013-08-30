@@ -1,5 +1,5 @@
 <Datatype>
-# Tree a = Leaf | SingleNode (Tree a) | Node a (Tree a) (Tree a)
+# Tree a = Leaf | Node a (Tree a) (Tree a)
 <Datatype>
 <Sym>
 # (++)
@@ -9,7 +9,6 @@
 # reverse
 <Sym>
 <Def>
-head (a:(head (x:xs))) 
 <Def>
 <Lemma>
 
@@ -20,9 +19,9 @@ length (reverse t) = length t
 <Over>
 t
 <Over>
-<BaseCase>
+<Leaf>
 length (reverse Leaf) = length Leaf
-<BaseCase>
-<Step>
+<Leaf>
+<Node>
 length (reverse (Node 0 a b)) = length (Node 0 a b)
-<Step>
+<Node>

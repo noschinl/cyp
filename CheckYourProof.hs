@@ -18,6 +18,13 @@ Check Your Proof (CYP)
 type ConstList = [String]
 type VariableList = [String]
 
+        
+data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Literal
+  deriving (Show, Eq)
+  
+data TCyp = TApplication TCyp TCyp | TConst String | TNRec String | TRec
+	deriving (Show, Eq)
+
 testread file expression=
     do
        content <- readFile file
@@ -42,28 +49,21 @@ getProof content globalConstList datatype over rules induction =
         cases <- sequence (map (\x -> getCyp content ("<" ++ fst x ++ ">") globalConstList) datatype)
         proof <- sequence (map (\x -> makeProof induction x over datatype rules) cases)
         return proof
-
+        
 makeProof induction step over datatype rules=
     do
-        (newlemma, variable, datatype, static) <- getFirstStep induction step over datatype
-        proof <- getSteps (rules ++ newlemma) (map (transformVartoConst) (head step)) (Application (Const "length") (Application (Application (Const ":") (Const "x")) (Const "xs")))
-        --ToDo
-        return (proof)
-        
-data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Literal
-  deriving (Show, Eq)
-  
-data TCyp = TApplication TCyp TCyp | TConst String | TNRec String | TRec
-	deriving (Show, Eq)
+        (newlemma, variable, laststep, static) <- getFirstStep induction step over datatype
+        proof <- getSteps (rules ++ newlemma) (map (\x -> transformVartoConstList x variable) (head step)) (transformVartoConstList laststep variable)
+        return proof
 	
 	
 makeSteps rules (x:y:steps) aim 
     | y `elem` fst (unzip (applyall x rules)) = "" ++ (makeSteps rules (y:steps) aim)
-    | otherwise = "Fehler :( : step " ++ printInfo x ++ " to " ++ printInfo  y
+    | otherwise = "Error - (nmr) No matching rule: step " ++ printInfo x ++ " to " ++ printInfo  y
 makeSteps rules [x] aim 
-    | x == aim = "Erfolgreicher Beweis des aktuellen Goals"
-    | x /= aim = "Hier fehlt noch was"
-makeSteps _ _ _ = "Komischer Beweis :)"
+    | x == aim = []
+    | x /= aim = "Error - (eop) End of proof is not the right side of induction: " ++ printInfo x ++ " to " ++ printInfo aim
+makeSteps _ _ _ = "Error"
 
 applyall step rules = concatMap (\rule -> concat $ nub [apply step x y | x <- rule, y <- rule]) rules 
 
@@ -203,13 +203,14 @@ true :: a -> b -> Bool
 true _ _ = True
 
 
-mapFirstStep :: [[Cyp]] -> [[Cyp]] -> [String] -> [(String, TCyp)] -> ([[Cyp]], [Cyp], [(String, TCyp)], [Cyp])
-mapFirstStep theses firststeps over goals = (map (\x -> map (\y -> createNewLemmata y (head over) x) (head theses)) (concat fmg), concat fmg, concat smg, concat tmg)
+mapFirstStep :: [[Cyp]] -> [[Cyp]] -> [String] -> [(String, TCyp)] -> ([[Cyp]], [Cyp], Cyp, [Cyp])
+mapFirstStep theses firststeps over goals = (map (\x -> map (\y -> createNewLemmata y (head over) x) (head theses)) (concat fmg), concat fmg, head lastStep, concat tmg)
 	where
-		(fmg, smg, tmg) = unzip3 mapGoals
+	    lastStep = parseLastStep (head $ head theses) (head $ head firststeps) (head over) (last $ head theses)
+	    (fmg, _ , tmg) = unzip3 mapGoals
 			where
 				mapGoals = concatMap (\z -> map (\(y,x) -> goalLookup x z (head over) (y,x)) goals) (parseFirstStep (head $ head theses) (head $ head firststeps) (head over))
-				
+								
 parseFirstStep :: Cyp -> Cyp -> String -> [Cyp]
 parseFirstStep (Variable n) m over
 	| over == n =  [m]
@@ -232,6 +233,16 @@ goalLookup (TConst a) (Const b) over x
 goalLookup (TNRec a) (Variable b) _ _ = ([], [], [Variable b])
 goalLookup (TRec) b over x = ([b], [], [b])
 goalLookup _ _ _  x = ([], [x], [])
+
+parseLastStep :: Cyp -> Cyp -> String -> Cyp -> [Cyp]
+parseLastStep (Variable n) m over last
+	| over == n =  [edit last [(Variable n, m)]]
+    | otherwise = []
+parseLastStep (Literal l) _ _ _ = []
+parseLastStep (Const c) _ _ _ = []
+parseLastStep (Application cypCurry cyp) (Application cypthesisCurry cypthesis) over last = (parseLastStep cypCurry cypthesisCurry over last) ++ (parseLastStep cyp cypthesis over last)
+parseLastStep _ _ _ _ = []
+
 
 createNewLemmata :: Cyp -> String -> Cyp -> Cyp
 createNewLemmata (Application cypcurry cyp) over b =  Application (createNewLemmata cypcurry over b) (createNewLemmata cyp over b)
@@ -259,6 +270,13 @@ transformVartoConst (Variable v) = Const v
 transformVartoConst (Const v) = Const v
 transformVartoConst (Application cypCurry cyp) = Application (transformVartoConst cypCurry) (transformVartoConst cyp)
 transformVartoConst (Literal a) = Literal a
+
+transformVartoConstList :: Cyp -> [Cyp] -> Cyp
+transformVartoConstList (Variable v) list | (Variable v) `elem` list = Const v
+                                      | otherwise = Variable v
+transformVartoConstList (Const v) list = Const v
+transformVartoConstList (Application cypCurry cyp) list = Application (transformVartoConstList cypCurry list) (transformVartoConstList cyp list)
+transformVartoConstList (Literal a) list = Literal a
 
 getSteps rules steps aim =
     do 
