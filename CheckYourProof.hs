@@ -142,8 +142,6 @@ getLists (InfixApp e1 (QVarOp i) e2) = (cs1 ++ cs2 ++ [translateQName i], vs1 ++
     where
         (cs1,vs1) = getLists e1
         (cs2,vs2) = getLists e2
-getLists (App (Var e1) e2) = (cs2 ++ [translateQName e1], vs2)
-    where (cs2,vs2) = getLists e2
 getLists (App e1 e2) = (cs1 ++ cs2, vs1 ++ vs2)
     where
         (cs1,vs1) = getLists e1
