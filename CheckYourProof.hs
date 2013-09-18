@@ -169,7 +169,6 @@ translate (InfixApp e1 (QConOp i) e2) cl vl f = Application (Application (Const 
 translate (InfixApp e1 (QVarOp i) e2) cl vl f
     | elem (translateQName i) cl =  Application (Application (Const (translateQName i)) (translate e1 cl vl f)) (translate e2 cl vl f)
     | f (translateQName i) vl =  Application (Application (Variable (translateQName i)) (translate e1 cl vl f)) (translate e2 cl vl f)
-translate (App (Var e1) e2) cl vl f = Application (Const (translateQName e1)) (translate e2 cl vl f)
 translate (App e1 e2)  cl vl f = Application (translate e1 cl vl f) (translate e2 cl vl f)
 translate (Paren e) cl vl f = translate e cl vl f
 translate (List l) cl vl f
