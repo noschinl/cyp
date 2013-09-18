@@ -3,6 +3,7 @@ import Data.Char
 import Control.Monad
 import Text.Regex
 import Data.List
+import Data.Maybe (maybeToList)
 import Language.Haskell.Exts.Parser 
 import Language.Haskell.Exts.Syntax(Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..))
 
@@ -58,33 +59,47 @@ makeProof induction step over datatype rules=
 	
 	
 makeSteps rules (x:y:steps) aim 
-    | y `elem` fst (unzip (applyall x rules)) = "" ++ (makeSteps rules (y:steps) aim)
+    | y `elem` applyall x rules = makeSteps rules (y:steps) aim
     | otherwise = "Error - (nmr) No matching rule: step " ++ printInfo x ++ " to " ++ printInfo  y
 makeSteps rules [x] aim 
     | x == aim = []
     | x /= aim = "Error - (eop) End of proof is not the right side of induction: " ++ printInfo x ++ " to " ++ printInfo aim
 makeSteps _ _ _ = "Error"
 
-applyall step rules = concatMap (\rule -> concat $ nub [apply step x y | x <- rule, y <- rule]) rules 
+applyall step rules = concatMap (\rule -> concat $ nub [apply step (x, y) | x <- rule, y <- rule]) rules
 
 
-apply :: Cyp -> Cyp -> Cyp -> [(Cyp, [(Cyp, Cyp)])]
-apply step@(Application cc c) rule@(Application ccr cr) to = 
-    found ++ [(Application x c, y) | (x,y) <- apply cc (Application ccr cr) to] ++ [(Application cc x, y) | (x,y) <- apply c (Application ccr cr) to]
-	    where
-		    (fstt, sndt) = head $ apply cc ccr to
-		    (fstc, sndc) = head $ (apply c cr to)
-		    found
-			    | (length (apply c cr to) > 0) && (length (apply cc ccr to) > 0) = [(edit to (sndt ++ sndc), (sndt ++ sndc))]
-			    | otherwise = []
-apply (Literal a) (Literal b) _
-	| a == b = [(Literal a, [])]
-	| otherwise = []
-apply (Const a) (Const b) _
-	| a == b = [(Const a, [])]
-	| otherwise = []
-apply x (Variable b) _ = [(Variable b, [(Variable b, x)])]
-apply _ _ _ = []
+match :: Cyp -> Cyp -> Maybe [(String, Cyp)]
+match term pat = match' term pat []
+    where
+        match' (Application f a) (Application f' a') s = match' f f' s >>= match' a a'
+        match' (Literal a) (Literal b) s
+            | a == b = Just s
+            | otherwise = Nothing
+        match' (Const a) (Const b) s
+            | a == b = Just s
+            | otherwise = Nothing
+        match' t (Variable v) s = case lookup v s of
+            Nothing -> Just $ (v,t) : s
+            Just t' -> if t == t' then Just s else Nothing
+        match' _ _ _ = Nothing
+
+subst :: Cyp -> [(String, Cyp)] -> Cyp
+subst (Application f a) s = Application (subst f s) (subst a s)
+subst (Variable v) s = case lookup v s of
+      Nothing -> Variable v
+      Just t -> t
+subst t _ = t
+
+apply_top :: Cyp -> (Cyp,Cyp) -> Maybe Cyp
+apply_top t (lhs, rhs) = fmap (subst rhs) $ match t lhs
+
+apply :: Cyp -> (Cyp,Cyp) -> [Cyp]
+apply t@(Application f a) eq =
+    maybeToList (apply_top t eq)
+    ++ map (\x -> Application x a) (apply f eq)
+    ++ map (Application f) (apply a eq)
+apply t eq = maybeToList $ apply_top t eq
 
 edit :: Cyp -> [(Cyp, Cyp)] -> Cyp
 edit (Application cypcurry cyp) x = Application (edit cypcurry x) (edit cyp x)
