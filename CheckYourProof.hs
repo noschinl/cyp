@@ -3,7 +3,12 @@ import Data.Char
 import Control.Monad
 import Text.Regex
 import Data.List
-import Data.Maybe (maybeToList)
+import Data.Maybe
+import Text.Parsec
+import Text.Parsec.Combinator
+import Text.Parsec.Prim
+import Text.Parsec.Char
+import Text.Parsec.String
 import Language.Haskell.Exts.Parser 
 import Language.Haskell.Exts.Syntax(Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..))
 
@@ -19,6 +24,8 @@ Check Your Proof (CYP)
 type ConstList = [String]
 type VariableList = [String]
 
+data ParsingResult = Data String | Lemma String | Induction String | Sym String | Fun String | Over String | Cases String String | Gen String | GenProof String | Comment
+    deriving (Show, Eq)
         
 data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Literal
   deriving (Show, Eq)
@@ -391,4 +398,126 @@ replace _ _ [] = []
 replace old new (x:xs) 
 	| isPrefixOf old (x:xs) = new ++ drop (length old) (x:xs)
 	| otherwise = x : replace old new xs
+
+-- Parsers
+
+parseMaster input = Text.Parsec.Prim.parse masterFile "(unknown)" input
+parseStudent input = Text.Parsec.Prim.parse studentParser "(unknown)" input
+
+commentParser :: Parsec [Char] () ()      
+commentParser =
+    do  string "--" 
+        result <- many (noneOf "\r\n")
+        space
+        return ()
+longcommentParser :: Parsec [Char] () ()      
+longcommentParser =
+    do  string "{-" 
+        result <- manyTill anyChar (try (lookAhead (string "-}")))
+        string "-}"
+        return ()
+           
+commentParsers =
+    do 
+        commentParser <|> longcommentParser
+        return ()
+        
+masterFile :: Parsec [Char] () [ParsingResult]
+masterFile = 
+    do result <- many masterParsers
+       eof
+       return result
+       
+masterParsers :: Parsec [Char] () ParsingResult
+masterParsers =
+    do many space
+       optionMaybe (try commentParser <|> try longcommentParser)
+       result <- (try dataParser <|> try lemmaParser <|> try symParser <|> funParser)
+       return result
+       
+lemmaParser :: Parsec [Char] ()  ParsingResult    
+lemmaParser =
+    do  string "lemma" 
+        result <- many (noneOf "\r\n")
+        space
+        return (Lemma result)
+
+dataParser :: Parsec [Char] ()  ParsingResult    
+dataParser =
+    do  string "data" 
+        result <- many (noneOf "\r\n" )
+        space
+        return (Data result)
+symParser :: Parsec [Char] ()  ParsingResult        
+symParser =
+    do  string "declare_sym" 
+        result <- many (noneOf "\r\n")
+        space
+        return (Sym result)
+
+funParser :: Parsec [Char] () ParsingResult       
+funParser =
+    do  result <- many (noneOf "\r\n")
+        space
+        return (Fun result)
+
+studentParser ::  Parsec [Char] () [ParsingResult]
+studentParser =
+    do  string "Lemma:"
+        induction <- many (noneOf "\r\n")
+        manySpacesOrComment
+        string "Proof by induction on"
+        over <- many (noneOf "\r\n")
+        manySpacesOrComment
+        string "Case"
+        cases <- casesParser
+        manySpacesOrComment
+        string "q.e.d."
+        manySpacesOrComment
+        gen <- optionMaybe genParser
+        manySpacesOrComment
+        eof
+        if gen == Nothing then 
+            return ((Induction induction):(Over over):cases)
+        else 
+            return (((Induction induction):(Over over):cases) ++ (fromJust gen))
+        
+casesParser ::  Parsec [Char] () [ParsingResult]
+casesParser =
+    do  result <- many (noneOf "\r\n")
+        manySpacesOrComment
+        endcase <- manyTill anyCharReturnsExceptComment (try (lookAhead (string "Case")) <|> lookAhead (string "q.e.d."))
+        wascase <- optionMaybe (string "Case")
+        if wascase == Nothing then 
+            return [(Cases result endcase)]
+        else
+            do 
+                nextcase <- casesParser
+                return ([(Cases result endcase)] ++ nextcase)
+
+genParser :: Parsec [Char] () [ParsingResult]
+genParser = 
+    do  string "Lemma:"
+        induction <- many (noneOf "\r\n")
+        manySpacesOrComment
+        string "Proof by equotions"
+        manySpacesOrComment
+        eq <- manyTill anyCharReturnsExceptComment (try (lookAhead (string "q.e.d")))
+        manySpacesOrComment
+        string "q.e.d."
+        return [(Gen induction), (GenProof eq)]
+        
+anyCharReturnsExceptComment =
+    do (try (helpCommentParsers) <|> anyChar)
+    where    
+        helpCommentParsers =
+            do 
+                commentParser <|> longcommentParser
+                return ' '
+manySpacesOrComment = 
+    do         
+        many space
+        optionMaybe (many commentParsers)
+        many space
+        return ()
 
