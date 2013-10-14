@@ -4,7 +4,7 @@ Proof by induction on ys
 
 -- Cases
 
-Case []
+Case Nil
     length (reverse Nil) 
     = length Nil
     

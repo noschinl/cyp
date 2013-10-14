@@ -35,33 +35,36 @@ data TCyp = TApplication TCyp TCyp | TConst String | TNRec String | TRec
 
 proof masterFile studentFile =
 	do
-	    parseresult <- parsing masterFile studentFile
-	    return parseresult
-		
-oldproof file =
-	do
-		content <- readFile file
-		datatype <- getDataType content "<Datatype>"
-		sym <- varToConst $ getSym content "<Sym>"
-		(func, globalConstList) <- getFunc content "<Def>" sym
-		lemmata <- getCyp content "<Lemma>" globalConstList
-		induction <- getCyp content "<Induction>" globalConstList
-		hypothesis <- getCyp content "<Hypothesis>" globalConstList
-		over <- getOver content "<Over>" globalConstList
-		proof <- getProof content globalConstList datatype over (func ++ lemmata) induction
+		parseresult <- parsing masterFile studentFile
+		datatype <- readDataType parseresult
+		sym <- varToConst $ readSym parseresult
+		(func, globalConstList, new) <- readFunc parseresult sym
+		lemmata <- readLemma parseresult globalConstList
+		induction <- readInduction parseresult globalConstList
+		over <- readOver parseresult
+		proof <- readProof parseresult globalConstList datatype over (func ++ lemmata) induction
 		return proof
-		
-getProof content globalConstList datatype over rules induction =
+
+readProof pr globalConstList datatype over rules induction =
     do
-        cases <- sequence (map (\x -> getCyp content ("<" ++ fst x ++ ">") globalConstList) datatype)
-        proof <- sequence (map (\x -> makeProof induction x over datatype rules) cases)
-        return proof
-        
-makeProof induction step over datatype rules=
+		cases <- sequence (map (\x -> readCases pr (fst x) globalConstList) datatype)
+		proof <- sequence (map (\x -> makeProof induction x over datatype rules) cases)
+		return proof --if not all cases => error message!
+
+     
+makeProof induction step over datatype rules =
     do
         (newlemma, variable, laststep, static) <- getFirstStep induction step over datatype
         proof <- getSteps (rules ++ newlemma) (map (\x -> transformVartoConstList x static elem) (head step)) (transformVartoConstList laststep static elem)
         return proof
+
+getSteps rules steps aim =
+    do 
+        return (makeSteps rules steps aim)
+
+getFirstStep thesis steps over goals =
+	do
+		return (mapFirstStep thesis steps over goals)
 	
 	
 makeSteps rules (x:y:steps) aim 
@@ -163,6 +166,10 @@ getLists (InfixApp e1 (QVarOp i) e2) = (cs1 ++ cs2 ++ [translateQName i], vs1 ++
     where
         (cs1,vs1) = getLists e1
         (cs2,vs2) = getLists e2
+{- ganz wichtig für die Erkennung des Namens einer linken Seite der Func Def als Const -}
+getLists (App (Var i) e) = ((translateQName i):cs, vs)
+    where
+        (cs,vs) = getLists e
 getLists (App e1 e2) = (cs1 ++ cs2, vs1 ++ vs2)
     where
         (cs1,vs1) = getLists e1
@@ -293,41 +300,81 @@ transformVartoConstList (Const v) _ _ = Const v
 transformVartoConstList (Application cypCurry cyp) list f = Application (transformVartoConstList cypCurry list f) (transformVartoConstList cyp list f)
 transformVartoConstList (Literal a) _ _ = Literal a
 
-{-start old-}
-
-getSteps rules steps aim =
-    do 
-        return (makeSteps rules steps aim)
-
-getFirstStep thesis steps over goals =
+readDataType pr = 
 	do
-		return (mapFirstStep thesis steps over goals)
+		return (getGoals (tail $ head $ (innerParseDataType (tin pr))) (head $ head $ (innerParseDataType (tin pr))))
+	where
+		tin pr = trim $ inner pr
+			where
+				inner ((Data p):pr) = p:(inner pr)
+				inner (x:pr) = inner pr
+				inner _ = []
 
-getDataType content expression = 
-  do
-    foo <- outterParse content expression
-    return (getGoals (tail $ head $ (innerParseDataType foo)) (head $ head $ (innerParseDataType foo)))
+readLemma pr global = 
+	do
+		return (innerParseCyp (tin pr) global)
+	where
+		tin pr = trim $ inner pr
+			where		
+				inner ((Lemma p):pr) = p:(inner pr)
+				inner (x:pr) = inner pr
+				inner _ = []
 
-getCyp content expression global = 
-  do
-    foo <- outterParse content expression
-    return (innerParseCyp foo global)
+readInduction pr global = 
+	do
+		return (innerParseCyp (tin pr) global)
+	where
+		tin pr = trim $ inner pr
+			where		
+				inner ((Induction p):pr) = p:(inner pr)
+				inner (x:pr) = inner pr
+				inner _ = []
 
-getSym content expression = 
-  do
-    foo <- outterParse content expression
-    return (innerParseSym foo)
+readSym pr = 
+	do
+		return (innerParseSym (tin pr))
+	where
+		tin pr = trim $ inner pr
+			where		
+				inner ((Sym p):pr) = p:(inner pr)
+				inner (x:pr) = inner pr
+				inner _ = []
 
-getOver content expression global =
-  do
-    foo <- outterParse content expression
-    return (concat $ map getVariableList (innerParseLists foo))
 
-getFunc content expression sym = 
-  do
-    foo <- outterParse content expression
-    return (parseFunc foo (innerParseLists foo) (nub $ globalConstList (innerParseLists foo) sym), nub $ globalConstList (innerParseLists foo) sym)
-		
+readOver pr = 
+	do 
+		return (concat $ map getVariableList (innerParseLists (tin pr)))
+	where
+		tin pr = trim $ inner pr
+			where
+				inner ((Over p):pr) = p:(inner pr)
+				inner (x:pr) = inner pr
+				inner _ = []
+
+readFunc pr sym = 
+	do
+		return (parseFunc (tin pr) (innerParseLists (tin pr)) (nub $ globalConstList [] sym), nub $ globalConstList (innerParseLists (tin pr)) sym, (innerParseLists (tin pr)))
+	where
+		tin pr = trim $ inner pr
+			where
+			inner ((Fun p):pr) = p:(inner pr)
+			inner (x:pr) = inner pr
+			inner _ = []
+
+readCases pr x global =
+	do
+		return (innerParseCyp (tin pr x) global)
+	where
+		tin pr x = trim $ inner pr x
+			where		
+				inner ((Cases m p):pr) x 
+					| (trimh m) == (trimh x) = p:(inner pr x)
+					| otherwise = (inner pr x)
+					where
+						trimh = reverse . dropWhile isSpace
+				inner (x:pr) z = inner pr z
+				inner _ _ = []
+
 globalConstList (x:xs) ys = getConstList x ++ (globalConstList xs ys)
 globalConstList [] ((Const y):ys) = y : (globalConstList [] ys)
 globalConstList [] [] = []
@@ -335,14 +382,14 @@ globalConstList [] [] = []
 parseFunc r l g = zipWith (\a b -> [a, b]) (innerParseFunc r g l head) (innerParseFunc r g l last)
 
 innerParseFunc [] _ _ _ = []
-innerParseFunc (x:xs) g (v:vs) f = (parseDef (f (splitStringAt "=" x [])) g (getVariableList v)):(innerParseFunc xs g vs f)
+innerParseFunc (x:xs) g (v:vs) f = (parseDef (f (splitStringAt "=" x [])) (g ++ getConstList v) (getVariableList v)):(innerParseFunc xs g vs f)
   where
-    parseDef x g v = translate (transform $ parseExp $ x) g v elem
+    parseDef x g v = translate (transform $ parseExp x) g v elem
 
 innerParseLists [] = []
 innerParseLists (x:xs) = (parseLists $ head (splitStringAt "=" x [])):(innerParseLists xs)
 		
-parseLists x = getLists $ transform $ parseExp $ x
+parseLists x = getLists $ transform $ parseExp x
 		
 innerParseCyp [] _ = []
 innerParseCyp (x:xs) global = parseCyp (splitStringAt "=" x []) global:(innerParseCyp xs global)
@@ -363,20 +410,6 @@ parseDataType [] = []
 parseDataType (x:xs) = (translateToTyp (translate (transform $ parseExp x) [] [] true))  : (parseDataType xs)
 
 transform (ParseOk a) = a
-
-outterParse content expression = 
-  do
-    return $ trim $ deleteAll splitH deleteH
-      where
-      	deleteH = (\x -> ( x == "") || ( x == expression))
-      	splitH = splitStringAt "#" (replace expression "" $ concat matchReg) []
-      	  where
-      	    matchReg = extract (matchRegex regex (deleteAll content isControl))
-      	      where
-            		regex = mkRegex (expression ++ "(.*)" ++ expression)
-            		extract (Just x) = x
-            		
-{-end old-}
     	
 deleteAll :: Eq a => [a] -> (a->Bool) -> [a]
 deleteAll [] _ = []
@@ -402,14 +435,19 @@ replace old new (x:xs)
 	| isPrefixOf old (x:xs) = new ++ drop (length old) (x:xs)
 	| otherwise = x : replace old new xs
 
--- Parsers
 parsing :: String -> String -> IO [ParsingResult]
 parsing masterFile studentFile =
 	do
 		masterContent <- readFile masterFile
 		studentContent <- readFile studentFile
 		result <- returnParsing (parseMaster masterContent) (parseStudent studentContent)
-		return result
+		return $ removeEmptyFun result
+
+removeEmptyFun ((Fun x):xs)
+	| length (splitStringAt "=" x []) > 0 = (Fun x) : removeEmptyFun xs
+	| otherwise = removeEmptyFun xs
+removeEmptyFun (x:xs) = x:removeEmptyFun xs
+removeEmptyFun [] = []
 		
 returnParsing (Left a) _ = 
     do
