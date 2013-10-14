@@ -33,12 +33,12 @@ data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Litera
 data TCyp = TApplication TCyp TCyp | TConst String | TNRec String | TRec
 	deriving (Show, Eq)
 
-testread file expression=
-    do
-       content <- readFile file
-       return (matchRegex (mkRegex (expression ++ "(.*?)" ++ expression))((deleteAll content isControl)))
-
-proof file =
+proof masterFile studentFile =
+	do
+	    parseresult <- parsing masterFile studentFile
+	    return parseresult
+		
+oldproof file =
 	do
 		content <- readFile file
 		datatype <- getDataType content "<Datatype>"
@@ -50,7 +50,6 @@ proof file =
 		over <- getOver content "<Over>" globalConstList
 		proof <- getProof content globalConstList datatype over (func ++ lemmata) induction
 		return proof
-		
 		
 getProof content globalConstList datatype over rules induction =
     do
@@ -294,6 +293,8 @@ transformVartoConstList (Const v) _ _ = Const v
 transformVartoConstList (Application cypCurry cyp) list f = Application (transformVartoConstList cypCurry list f) (transformVartoConstList cyp list f)
 transformVartoConstList (Literal a) _ _ = Literal a
 
+{-start old-}
+
 getSteps rules steps aim =
     do 
         return (makeSteps rules steps aim)
@@ -374,6 +375,8 @@ outterParse content expression =
       	      where
             		regex = mkRegex (expression ++ "(.*)" ++ expression)
             		extract (Just x) = x
+            		
+{-end old-}
     	
 deleteAll :: Eq a => [a] -> (a->Bool) -> [a]
 deleteAll [] _ = []
@@ -400,6 +403,25 @@ replace old new (x:xs)
 	| otherwise = x : replace old new xs
 
 -- Parsers
+parsing :: String -> String -> IO [ParsingResult]
+parsing masterFile studentFile =
+	do
+		masterContent <- readFile masterFile
+		studentContent <- readFile studentFile
+		result <- returnParsing (parseMaster masterContent) (parseStudent studentContent)
+		return result
+		
+returnParsing (Left a) _ = 
+    do
+        putStr $ show a
+        return []
+returnParsing _  (Left a) = 
+    do
+        putStr $ show a
+        return []
+returnParsing (Right a) (Right b) = 
+    do
+        return (a++b)
 
 parseMaster input = Text.Parsec.Prim.parse masterFile "(unknown)" input
 parseStudent input = Text.Parsec.Prim.parse studentParser "(unknown)" input
