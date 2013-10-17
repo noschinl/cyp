@@ -15,13 +15,21 @@ Case :
     = length (reverse xs ++ [x])
     = length (reverse xs) + length [x] --Sepp
     = length xs + length [x]
+
+    length (x:xs)
     = length (xs ++ [x])
-    = length (x:xs)
+    = length xs + length [x]
 {-After Hier darf kein C sein _ase-}
 QED
 {-Between Lemma 
 Lemma: length (reverse ys) = length ys
 
 Proof by equotions
-{-Proof by biatch-
+Proof by biatch-
 q.e.d.-}
+
+Lemma: length (reverse [1,2]) = length [1,2]
+Proof
+    length (reverse [3,2])
+     = length [3,2]
+QED

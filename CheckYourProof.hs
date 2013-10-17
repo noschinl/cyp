@@ -42,7 +42,8 @@ data ParseProof
 
 type ParseEquations = [String]
 
-data Prop = Prop Cyp Cyp -- lhs, rhs
+data Prop = Prop Cyp Cyp
+    deriving (Eq, Show) -- lhs, rhs
 
 data Proof
     = Induction String [(String, [Cyp])] -- ind var, ...
@@ -79,8 +80,9 @@ tracePrettyF f x = tracePretty (f x) x
 
 proof masterFile studentFile = do
     parseresult <- parsing masterFile studentFile
+    
 
-    datatype <- {-tracePretty parseresult $-} readDataType parseresult
+    datatype <- {- tracePretty parseresult $ -} readDataType parseresult
     sym <- varToConst $ readSym parseresult
     (func, globalConstList, new) <- readFunc parseresult sym
     let func' = map (\[x,y] -> Prop x y) func
@@ -95,7 +97,10 @@ checkProofs axs [] dt  = []
 checkProofs axs (l@(Lemma prop _) : ls) dt = checkProof axs l dt : checkProofs (prop : axs) ls dt
 
 checkProof :: [Prop] -> Lemma -> [(String, TCyp)] -> [String]
-checkProof axs (Lemma prop (Equation _)) dt = undefined
+checkProof axs (Lemma prop (Equation eqns)) _ = 
+    case validEquationProof axs eqns prop of
+        Left err -> [err]
+        Right _ -> []
 checkProof axs (Lemma prop (Induction over cases)) dt =
     map (\x -> makeProof prop x over dt axs) (map snd cases)
 
@@ -108,7 +113,26 @@ makeProof prop step over datatype rules = proof
         prop' = listOfProp prop -- XXX
         rules' = map listOfProp rules -- XXX
         (newlemma, _, laststep, static) = mapFirstStep prop' step over datatype
+        -- XXX: get rid of makeSteps
         proof = makeSteps (rules' ++ newlemma) (map (\x -> transformVartoConstList x static elem) step) (transformVartoConstList laststep static elem)
+
+validEquations :: [Prop] -> [Cyp] -> Either String ()
+validEquations _ [] = Left "Empty equation sequence"
+validEquations _ [_] = Right ()
+validEquations rules (t1:t2:ts)
+    | t2 `elem` applyall t1 (map listOfProp rules) = validEquations rules (t2:ts)
+    | otherwise = Left $ "(nmr) No matching rule: step " ++ printInfo t1 ++ " to " ++ printInfo t2
+
+validEquationProof :: [Prop] -> [Cyp] -> Prop -> Either String ()
+validEquationProof rules eqns aim = do
+    validEquations rules eqns
+    let proved = Prop (head eqns) (last eqns)
+    if proved == aim
+        then Right ()
+        else Left ("Proved proposition does not match goal:\n" ++ printProp proved ++ "\nvs.\n" ++ printProp aim)
+
+
+
 
 makeSteps rules (x:y:steps) aim 
     | y `elem` applyall x rules = makeSteps rules (y:steps) aim
@@ -170,6 +194,9 @@ printRunnable (Application cypCurry cyp) = "(" ++ (printRunnable cypCurry) ++ " 
 printRunnable (Literal a) = translateLiteral a
 printRunnable (Variable a) = a
 printRunnable (Const a) = a
+
+printProp :: Prop -> String
+printProp (Prop l r) = printInfo l ++ " = " ++ printInfo r
 
 printInfo :: Cyp -> String
 printInfo (Application cypCurry cyp) = "(" ++ (printInfo cypCurry) ++ " " ++ (printInfo cyp) ++ ")"
@@ -522,10 +549,7 @@ longcommentParser =
         result <- manyTill anyChar (try (string "-}"))
         return ()
 
-commentParsers =
-    do 
-        commentParser <|> longcommentParser
-        return ()
+commentParsers = commentParser <|> longcommentParser <?> "comment"
 
 masterFile :: Parsec [Char] () [ParseTree]
 masterFile = 
@@ -569,14 +593,16 @@ funParser =
 
 equationProofParser :: Parsec [Char] () ParseProof
 equationProofParser = do
-    string "XXXXXX" -- XXX
-    return $ ParseEquation []
+    keyword "Proof"
+    eqns <- equationsParser
+    manySpacesOrComment
+    keywordQED
+    return $ ParseEquation eqns
 
 inductionProofParser :: Parsec [Char] () ParseProof
 inductionProofParser = 
     do  keyword "Proof by induction on"
-        over <- many (noneOf "\r\n")
-        eol
+        over <- toEol
         manySpacesOrComment
         cases <- many1 caseParser
         manySpacesOrComment
@@ -610,24 +636,51 @@ keyword kw = try $ do
 keywordCase = keyword "Case"
 keywordQED = keyword "QED"
 
+toEol = do
+    res <- many1 (noneOf "\r\n")
+    eol
+    return res
+
+equationsParser :: Parsec [Char] () ParseEquations
+equationsParser = do
+    eq1 <- equations'
+    eq2 <- option [] (try equations')
+    return $ eq1 ++ reverse eq2
+  where
+    equations' = do
+        spaces
+        line <- toEol
+        lines <- many1 (try (manySpacesOrComment >> string "=" >> lineSpaces >> toEol))
+        return (line : lines)
+
 caseParser :: Parsec [Char] () (String, ParseEquations)
 caseParser = do
-        keywordCase
-        cons <- many1 (noneOf "\r\n")
-        eol
-        manySpacesOrComment
-        eqns <- manyTill p end
-        manySpacesOrComment
-        return (cons, eqns)
-    where
-        p = do
-            spaces
-            optional (string "= ")
-            res <- many1 (noneOf "\r\n")
-            eol
-            manySpacesOrComment
-            return res
-        end = lookAhead $ (manySpacesOrComment >> (keywordCase <|> keywordQED))
+    keywordCase
+    manySpacesOrComment
+    cons <- toEol
+    manySpacesOrComment
+    eqns <- equationsParser
+    manySpacesOrComment
+    return (cons, eqns)
+
+-- caseParser :: Parsec [Char] () (String, ParseEquations)
+-- caseParser = do
+--         keywordCase
+--         cons <- many1 (noneOf "\r\n")
+--         eol
+--         manySpacesOrComment
+--         eqns <- manyTill p end
+--         manySpacesOrComment
+--         return (cons, eqns)
+--     where
+--         p = do
+--             spaces
+--             optional (string "= ")
+--             res <- many1 (noneOf "\r\n")
+--             eol
+--             manySpacesOrComment
+--             return res
+--         end = lookAhead $ (manySpacesOrComment >> (keywordCase <|> keywordQED))
 
 manySpacesOrComment =
     do
