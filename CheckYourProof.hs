@@ -1,7 +1,7 @@
 module CheckYourProof where
 import Data.Char
 import Control.Monad
-import Text.Regex
+--import Text.Regex
 import Data.List
 import Data.Maybe
 import Text.Parsec
@@ -11,6 +11,9 @@ import Text.Parsec.Char
 import Text.Parsec.String
 import Language.Haskell.Exts.Parser 
 import Language.Haskell.Exts.Syntax(Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..))
+
+import Debug.Trace
+import Text.Show.Pretty (ppShow)
 
 {-
 Copyright by Dominik Durner / Technische Universität München - Institute for Informatics - Chair for Logic and Verification (I21)
@@ -24,49 +27,90 @@ Check Your Proof (CYP)
 type ConstList = [String]
 type VariableList = [String]
 
-data ParsingResult = Data String | Lemma String | Induction String | Sym String | Fun String | Over String | Cases String String | Gen String | GenProof String | Comment
-    deriving (Show, Eq)
-        
+data ParseTree
+    = DataDecl String
+    | SymDecl String -- Symbol (, Arity)
+    | Axiom String
+    | FunDef String
+    | ParseLemma String ParseProof -- Proposition, Proof
+    deriving Show
+
+data ParseProof
+    = ParseInduction String [(String, ParseEquations)] -- Over, Cases
+    | ParseEquation ParseEquations
+    deriving Show
+
+type ParseEquations = [String]
+
+data Prop = Prop Cyp Cyp -- lhs, rhs
+
+data Proof
+    = Induction VariableList [(Cyp, [Cyp])]
+    -- XXX Induction must contain the datatype of the variable we do induction over
+    | Equation [Cyp]
+
+data Lemma = Lemma Prop Proof -- Proposition (_ = _), Proof
+
+
 data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Literal
   deriving (Show, Eq)
   
 data TCyp = TApplication TCyp TCyp | TConst String | TNRec String | TRec
 	deriving (Show, Eq)
 
-proof masterFile studentFile =
-	do
-		parseresult <- parsing masterFile studentFile
-		datatype <- readDataType parseresult
-		sym <- varToConst $ readSym parseresult
-		(func, globalConstList, new) <- readFunc parseresult sym
-		lemmata <- readLemma parseresult globalConstList
-		induction <- readInduction parseresult globalConstList
-		over <- readOver parseresult
-		proof <- readProof parseresult globalConstList datatype over (func ++ lemmata) induction
-		return proof
+tracePretty :: Show a => a -> b -> b
+tracePretty = trace . ppShow
 
-readProof pr globalConstList datatype over rules induction =
-    do
-		cases <- sequence (map (\x -> readCases pr (fst x) globalConstList) datatype)
-		proof <- sequence (map (\x -> makeProof induction x over datatype rules) cases)
-		return proof --if not all cases => error message!
+proof masterFile studentFile = do
+    parseresult <- parsing masterFile studentFile
 
-     
-makeProof induction step over datatype rules =
-    do
-        (newlemma, variable, laststep, static) <- getFirstStep induction step over datatype
-        proof <- getSteps (rules ++ newlemma) (map (\x -> transformVartoConstList x static elem) (head step)) (transformVartoConstList laststep static elem)
-        return proof
+    datatype <- tracePretty parseresult $ readDataType parseresult
+    sym <- varToConst $ readSym parseresult
+    (func, globalConstList, new) <- readFunc parseresult sym
+    let func' = map (\[x,y] -> Prop x y) func
+    axioms <- readAxiom parseresult globalConstList
 
-getSteps rules steps aim =
-    do 
-        return (makeSteps rules steps aim)
+    let lemmas = readLemmas parseresult globalConstList datatype -- lemmas -change name?
+    let proof = checkProofs (func' ++ axioms) lemmas datatype
+    return proof
 
-getFirstStep thesis steps over goals =
-	do
-		return (mapFirstStep thesis steps over goals)
-	
-	
+checkProofs :: [Prop] -> [Lemma] -> [(String, TCyp)] -> [[String]]
+checkProofs axs [] dt  = []
+checkProofs axs (l@(Lemma prop _) : ls) dt = checkProof axs l dt : checkProofs (prop : axs) ls dt
+
+checkProof :: [Prop] -> Lemma -> [(String, TCyp)] -> [String]
+checkProof axs (Lemma prop (Equation _)) dt = undefined
+checkProof axs (Lemma prop (Induction over cases)) dt =
+    map (\x -> makeProof prop x over dt axs) [map snd cases]
+
+-- proof masterFile studentFile =
+-- 	do
+-- 		parseresult <- parsing masterFile studentFile
+-- 		datatype <- readDataType parseresult
+-- 		sym <- varToConst $ readSym parseresult
+-- 		(func, globalConstList, new) <- readFunc parseresult sym
+-- 		axioms <- readAxiom parseresult globalConstList
+-- 		induction <- readInduction parseresult globalConstList
+-- 		over <- readOver parseresult
+-- 		proof <- readProof parseresult globalConstList datatype over (func ++ axioms) induction
+-- 		return proof
+-- 
+-- readProof pr globalConstList datatype over rules induction =
+--     do
+-- 		cases <- sequence (map (\x -> readCases pr (fst x) globalConstList) datatype)
+-- 		proof <- sequence (map (\x -> makeProof induction x over datatype rules) cases)
+-- 		return proof --if not all cases => error message!
+
+makeProof :: Prop -> [[Cyp]] -> [String] -> [(String, TCyp)] -> [Prop] -> String
+makeProof induction step over datatype rules = proof
+    where
+        induction' = (\(Prop l r) -> [[l,r]]) induction -- XXX
+        rules' = map (\(Prop l r) -> [l,r]) rules -- XXX
+        (newlemma, variable, laststep, static) = mapFirstStep induction' step over datatype
+        proof = getSteps (rules' ++ newlemma) (map (\x -> transformVartoConstList x static elem) (head step)) (transformVartoConstList laststep static elem)
+
+getSteps rules steps aim = (makeSteps rules steps aim)
+
 makeSteps rules (x:y:steps) aim 
     | y `elem` applyall x rules = makeSteps rules (y:steps) aim
     | otherwise = "Error - (nmr) No matching rule: step " ++ printInfo x ++ " to " ++ printInfo  y
@@ -235,7 +279,7 @@ mapFirstStep theses firststeps over goals = (map (\x -> map (\y -> createNewLemm
 	    (fmg, _ , tmg) = unzip3 mapGoals
 			where
 				mapGoals = concatMap (\z -> map (\(y,x) -> goalLookup x z (head over) (y,x)) goals) (parseFirstStep (head $ head theses) (head $ head firststeps) (head over))
-								
+
 parseFirstStep :: Cyp -> Cyp -> String -> [Cyp]
 parseFirstStep (Variable n) m over
 	| over == n =  [m]
@@ -306,27 +350,17 @@ readDataType pr =
 	where
 		tin pr = trim $ inner pr
 			where
-				inner ((Data p):pr) = p:(inner pr)
+				inner ((DataDecl p):pr) = p:(inner pr)
 				inner (x:pr) = inner pr
 				inner _ = []
 
-readLemma pr global = 
+readAxiom pr global = 
 	do
-		return (innerParseCyp (tin pr) global)
+		return (innerParseCyps (tin pr) global)
 	where
 		tin pr = trim $ inner pr
 			where		
-				inner ((Lemma p):pr) = p:(inner pr)
-				inner (x:pr) = inner pr
-				inner _ = []
-
-readInduction pr global = 
-	do
-		return (innerParseCyp (tin pr) global)
-	where
-		tin pr = trim $ inner pr
-			where		
-				inner ((Induction p):pr) = p:(inner pr)
+				inner ((Axiom p):pr) = p:(inner pr)
 				inner (x:pr) = inner pr
 				inner _ = []
 
@@ -336,44 +370,76 @@ readSym pr =
 	where
 		tin pr = trim $ inner pr
 			where		
-				inner ((Sym p):pr) = p:(inner pr)
+				inner ((SymDecl p):pr) = p:(inner pr)
 				inner (x:pr) = inner pr
 				inner _ = []
 
-
-readOver pr = 
-	do 
-		return (concat $ map getVariableList (innerParseLists (tin pr)))
-	where
-		tin pr = trim $ inner pr
-			where
-				inner ((Over p):pr) = p:(inner pr)
-				inner (x:pr) = inner pr
-				inner _ = []
-
+readFunc :: Monad m => [ParseTree] -> [Cyp] -> m ([[Cyp]], [String], [(ConstList, VariableList)])
 readFunc pr sym = 
 	do
 		return (parseFunc (tin pr) (innerParseLists (tin pr)) (nub $ globalConstList [] sym), nub $ globalConstList (innerParseLists (tin pr)) sym, (innerParseLists (tin pr)))
 	where
 		tin pr = trim $ inner pr
 			where
-			inner ((Fun p):pr) = p:(inner pr)
+			inner ((FunDef p):pr) = p:(inner pr)
 			inner (x:pr) = inner pr
 			inner _ = []
 
-readCases pr x global =
-	do
-		return (innerParseCyp (tin pr x) global)
-	where
-		tin pr x = trim $ inner pr x
-			where		
-				inner ((Cases m p):pr) x 
-					| (trimh m) == (trimh x) = p:(inner pr x)
-					| otherwise = (inner pr x)
-					where
-						trimh = reverse . dropWhile isSpace
-				inner (x:pr) z = inner pr z
-				inner _ _ = []
+readLemmas pr global dt = mapMaybe readLemma pr
+    where
+        readLemma (ParseLemma prop proof) = Just (Lemma prop' proof')
+            where
+                prop' = innerParseCyp (trimh prop) global
+                proof' = readProof proof
+        readLemma _ = Nothing
+
+        readProof (ParseInduction over cases) = Induction over' cases'
+            where
+                over' = getVariableList $ innerParseList $ over
+                cases' = map (readCase cases) dt
+        readProof (ParseEquation eqns) = undefined
+
+        -- XXX do not silently drop invalid cases!
+        readCase cases dtcons = (parseCyp (fst cas) global, parseCyps (snd cas) global)
+            where
+                dtcons' = trimh $ fst dtcons -- XXX: Unnecessary?
+                cas = case filter (\(name,eqns) -> trimh name == dtcons') cases of
+                    [] -> undefined -- XXX error message
+                    (x:_) -> x
+
+--readCases pr x global =
+--	do
+--		return (innerParseCyps (tin pr x) global)
+--	where
+--		tin pr x = trim $ inner pr x
+--			where		
+--				inner ((Cases m p):pr) x 
+--					| (trimh m) == (trimh x) = p:(inner pr x)
+--					| otherwise = (inner pr x)
+--					where
+--						trimh = reverse . dropWhile isSpace
+--				inner (x:pr) z = inner pr z
+--				inner _ _ = []
+--
+--readInduction pr global = 
+--	do
+--		return (innerParseCyps (tin pr) global)
+--	where
+--		tin pr = trim $ inner pr
+--			where		
+--				inner ((Induction p):pr) = p:(inner pr)
+--				inner (x:pr) = inner pr
+--				inner _ = []
+--
+--readOver pr = 
+--	do 
+--		return (concat $ map getVariableList (map innerParseList (tin pr)))
+--	where
+--		tin pr = trim $ inner pr
+--			where
+--				inner ((Over p):pr) = p:(inner pr)
+--				inner (x:pr) = inner pr
+--				inner _ = []
 
 globalConstList (x:xs) ys = getConstList x ++ (globalConstList xs ys)
 globalConstList [] ((Const y):ys) = y : (globalConstList [] ys)
@@ -386,16 +452,17 @@ innerParseFunc (x:xs) g (v:vs) f = (parseDef (f (splitStringAt "=" x [])) (g ++ 
   where
     parseDef x g v = translate (transform $ parseExp x) g v elem
 
-innerParseLists [] = []
-innerParseLists (x:xs) = (parseLists $ head (splitStringAt "=" x [])):(innerParseLists xs)
-		
-parseLists x = getLists $ transform $ parseExp x
-		
-innerParseCyp [] _ = []
-innerParseCyp (x:xs) global = parseCyp (splitStringAt "=" x []) global:(innerParseCyp xs global)
+innerParseList x = parseLists $ head (splitStringAt "=" x [])
+innerParseLists = map innerParseList
 
-parseCyp [] _ = []
-parseCyp (x:xs) global = translate (transform $ parseExp x) global [] true : (parseCyp xs global)
+parseLists x = getLists $ transform $ parseExp x
+
+innerParseCyp pr global = Prop lhs rhs
+    where [lhs, rhs] = parseCyps (splitStringAt "=" pr []) global
+innerParseCyps prs global = map (\pr -> innerParseCyp pr global) prs
+
+parseCyp x global = translate (transform $ parseExp x) global [] true
+parseCyps xs global = map (\x -> parseCyp x global) xs
 
 innerParseSym [] = []
 innerParseSym (x:xs) = parseSym (splitStringAt "=" x []):(innerParseSym xs)
@@ -425,17 +492,19 @@ splitStringAt a (x:xs) h
 	| x `elem` a = h : splitStringAt a xs []
 	| otherwise = splitStringAt a xs (h++[x])
 												 
-trim (x:xs) = trimh (trimh x):trim xs
-  where
-    trimh = reverse . dropWhile isSpace
-trim [] = []
+
+trimh :: String -> String
+trimh = reverse . dropWhile isSpace . reverse . dropWhile isSpace
+
+trim :: [String] -> [String]
+trim = map trimh
 
 replace _ _ [] = []
 replace old new (x:xs) 
 	| isPrefixOf old (x:xs) = new ++ drop (length old) (x:xs)
 	| otherwise = x : replace old new xs
 
-parsing :: String -> String -> IO [ParsingResult]
+parsing :: String -> String -> IO [ParseTree]
 parsing masterFile studentFile =
 	do
 		masterContent <- readFile masterFile
@@ -443,8 +512,8 @@ parsing masterFile studentFile =
 		result <- returnParsing (parseMaster masterContent) (parseStudent studentContent)
 		return $ removeEmptyFun result
 
-removeEmptyFun ((Fun x):xs)
-	| length (splitStringAt "=" x []) > 0 = (Fun x) : removeEmptyFun xs
+removeEmptyFun ((FunDef x):xs)
+	| length (splitStringAt "=" x []) > 0 = (FunDef x) : removeEmptyFun xs
 	| otherwise = removeEmptyFun xs
 removeEmptyFun (x:xs) = x:removeEmptyFun xs
 removeEmptyFun [] = []
@@ -461,112 +530,151 @@ returnParsing (Right a) (Right b) =
     do
         return (a++b)
 
-parseMaster input = Text.Parsec.Prim.parse masterFile "(unknown)" input
-parseStudent input = Text.Parsec.Prim.parse studentParser "(unknown)" input
+parseMaster input = Text.Parsec.Prim.parse masterFile "(master)" input
+parseStudent input = Text.Parsec.Prim.parse studentParser "(student)" input
 
-commentParser :: Parsec [Char] () ()      
+commentParser :: Parsec [Char] () ()
 commentParser =
     do  string "--" 
         result <- many (noneOf "\r\n")
         space
         return ()
-longcommentParser :: Parsec [Char] () ()      
+longcommentParser :: Parsec [Char] () ()
 longcommentParser =
-    do  string "{-" 
-        result <- manyTill anyChar (try (lookAhead (string "-}")))
-        string "-}"
+    do  string "{-"
+        result <- manyTill anyChar (try (string "-}"))
         return ()
-           
+
 commentParsers =
     do 
         commentParser <|> longcommentParser
         return ()
-        
-masterFile :: Parsec [Char] () [ParsingResult]
+
+masterFile :: Parsec [Char] () [ParseTree]
 masterFile = 
     do result <- many masterParsers
        eof
        return result
-       
-masterParsers :: Parsec [Char] () ParsingResult
+
+masterParsers :: Parsec [Char] () ParseTree
 masterParsers =
     do many space
        optionMaybe (try commentParser <|> try longcommentParser)
-       result <- (try dataParser <|> try lemmaParser <|> try symParser <|> funParser)
+       result <- (try dataParser <|> try axiomParser <|> try symParser <|> funParser)
        return result
-       
-lemmaParser :: Parsec [Char] ()  ParsingResult    
-lemmaParser =
-    do  string "lemma" 
+
+axiomParser :: Parsec [Char] () ParseTree
+axiomParser =
+    do  keyword "lemma" 
         result <- many (noneOf "\r\n")
         space
-        return (Lemma result)
+        return (Axiom result)
 
-dataParser :: Parsec [Char] ()  ParsingResult    
+dataParser :: Parsec [Char] () ParseTree
 dataParser =
-    do  string "data" 
+    do  keyword "data"
         result <- many (noneOf "\r\n" )
         space
-        return (Data result)
-symParser :: Parsec [Char] ()  ParsingResult        
+        return (DataDecl result)
+
+symParser :: Parsec [Char] () ParseTree
 symParser =
-    do  string "declare_sym" 
+    do  keyword "declare_sym" 
         result <- many (noneOf "\r\n")
         space
-        return (Sym result)
+        return (SymDecl result)
 
-funParser :: Parsec [Char] () ParsingResult       
+funParser :: Parsec [Char] () ParseTree
 funParser =
     do  result <- many (noneOf "\r\n")
         space
-        return (Fun result)
+        return (FunDef result)
 
-studentParser ::  Parsec [Char] () [ParsingResult]
-studentParser =
-    do  string "Lemma:"
-        induction <- many (noneOf "\r\n")
-        manySpacesOrComment
-        string "Proof by induction on"
+equationProofParser :: Parsec [Char] () ParseProof
+equationProofParser = do
+    string "XXXXXX" -- XXX
+    return $ ParseEquation []
+
+inductionProofParser :: Parsec [Char] () ParseProof
+inductionProofParser = 
+    do  keyword "Proof by induction on"
         over <- many (noneOf "\r\n")
         manySpacesOrComment
-        string "Case"
-        cases <- casesParser
+        cases <- many1 caseParser
         manySpacesOrComment
-        string "q.e.d."
-        manySpacesOrComment
-        gen <- optionMaybe genParser
-        manySpacesOrComment
-        eof
-        if gen == Nothing then 
-            return ((Induction induction):(Over over):cases)
-        else 
-            return (((Induction induction):(Over over):cases) ++ (fromJust gen))
-        
-casesParser ::  Parsec [Char] () [ParsingResult]
-casesParser =
-    do  result <- many (noneOf "\r\n")
-        manySpacesOrComment
-        endcase <- manyTill anyCharReturnsExceptComment (try (lookAhead (string "Case")) <|> lookAhead (string "q.e.d."))
-        wascase <- optionMaybe (string "Case")
-        if wascase == Nothing then 
-            return [(Cases result endcase)]
-        else
-            do 
-                nextcase <- casesParser
-                return ([(Cases result endcase)] ++ nextcase)
+        keywordQED
+        return (ParseInduction over cases)
 
-genParser :: Parsec [Char] () [ParsingResult]
-genParser = 
-    do  string "Lemma:"
-        induction <- many (noneOf "\r\n")
+lemmaParser :: Parsec [Char] () ParseTree
+lemmaParser =
+    do  keyword "Lemma:"
+        proposition <- many (noneOf "\r\n")
         manySpacesOrComment
-        string "Proof by equotions"
+        proof <- inductionProofParser <|> equationProofParser
         manySpacesOrComment
-        eq <- manyTill anyCharReturnsExceptComment (try (lookAhead (string "q.e.d")))
+        return (ParseLemma proposition proof)
+
+studentParser ::  Parsec [Char] () [ParseTree]
+studentParser =
+    do  lemmas <- many1 lemmaParser
+        eof
+        return lemmas
+
+lineSpaces = skipMany (oneOf " \t") <?> "horizontal white space"
+
+keyword :: String -> Parsec [Char] () ()
+keyword kw = try $ do
+    string kw
+    notFollowedBy alphaNum
+    lineSpaces
+
+keywordCase = keyword "Case"
+keywordQED = keyword "QED"
+
+caseParser :: Parsec [Char] () (String, ParseEquations)
+caseParser = do
+        keywordCase
+        cons <- many1 (noneOf "\r\n")
         manySpacesOrComment
-        string "q.e.d."
-        return [(Gen induction), (GenProof eq)]
-        
+        eqns <- manyTill p end
+        manySpacesOrComment
+        return (cons, eqns)
+    where
+        p = do
+            spaces
+            optional (string "= ")
+            res <- many1 (noneOf "\r\n")
+            manySpacesOrComment
+            return res
+        end = lookAhead $ (manySpacesOrComment >> (keywordCase <|> keywordQED))
+
+
+
+--casesParser ::  Parsec [Char] () [ParseTree]
+--casesParser =
+--    do  result <- many (noneOf "\r\n")
+--        manySpacesOrComment
+--        endcase <- manyTill anyCharReturnsExceptComment (try (lookAhead (string "Case")) <|> lookAhead (string "q.e.d."))
+--        wascase <- optionMaybe (string "Case")
+--        if wascase == Nothing then 
+--            return [(Cases result endcase)]
+--        else
+--            do 
+--                nextcase <- casesParser
+--                return ([(Cases result endcase)] ++ nextcase)
+
+--genParser :: Parsec [Char] () [ParseTree]
+--genParser = 
+--    do  string "Lemma:"
+--        induction <- many (noneOf "\r\n")
+--        manySpacesOrComment
+--        string "Proof by equotions"
+--        manySpacesOrComment
+--        eq <- manyTill anyCharReturnsExceptComment (try (lookAhead (string "q.e.d")))
+--        manySpacesOrComment
+--        string "q.e.d."
+--        return [(Gen induction), (GenProof eq)]
+--        
 anyCharReturnsExceptComment =
     do (try (helpCommentParsers) <|> anyChar)
     where    

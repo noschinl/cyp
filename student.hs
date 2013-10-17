@@ -18,7 +18,7 @@ Case :
     = length (xs ++ [x])
     = length (x:xs)
 {-After Hier darf kein C sein _ase-}
-q.e.d.
+QED
 {-Between Lemma 
 Lemma: length (reverse ys) = length ys
 
