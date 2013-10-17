@@ -45,7 +45,7 @@ type ParseEquations = [String]
 data Prop = Prop Cyp Cyp -- lhs, rhs
 
 data Proof
-    = Induction VariableList [(Cyp, [Cyp])]
+    = Induction String [(Cyp, [Cyp])] -- ind var, ...
     -- XXX Induction must contain the datatype of the variable we do induction over
     | Equation [Cyp]
 
@@ -83,15 +83,16 @@ checkProof axs (Lemma prop (Equation _)) dt = undefined
 checkProof axs (Lemma prop (Induction over cases)) dt =
     map (\x -> makeProof prop x over dt axs) [map snd cases]
 
-makeProof :: Prop -> [[Cyp]] -> [String] -> [(String, TCyp)] -> [Prop] -> String
-makeProof induction step over datatype rules = proof
-    where
-        induction' = (\(Prop l r) -> [[l,r]]) induction -- XXX
-        rules' = map (\(Prop l r) -> [l,r]) rules -- XXX
-        (newlemma, variable, laststep, static) = mapFirstStep induction' step over datatype
-        proof = getSteps (rules' ++ newlemma) (map (\x -> transformVartoConstList x static elem) (head step)) (transformVartoConstList laststep static elem)
+listOfProp :: Prop -> [Cyp]
+listOfProp (Prop l r) = [l, r]
 
-getSteps rules steps aim = (makeSteps rules steps aim)
+makeProof :: Prop -> [[Cyp]] -> String -> [(String, TCyp)] -> [Prop] -> String
+makeProof prop step over datatype rules = proof
+    where
+        prop' = listOfProp prop -- XXX
+        rules' = map listOfProp rules -- XXX
+        (newlemma, variable, laststep, static) = mapFirstStep prop' step over datatype
+        proof = makeSteps (rules' ++ newlemma) (map (\x -> transformVartoConstList x static elem) (head step)) (transformVartoConstList laststep static elem)
 
 makeSteps rules (x:y:steps) aim 
     | y `elem` applyall x rules = makeSteps rules (y:steps) aim
@@ -254,13 +255,18 @@ true :: a -> b -> Bool
 true _ _ = True
 
 
-mapFirstStep :: [[Cyp]] -> [[Cyp]] -> [String] -> [(String, TCyp)] -> ([[Cyp]], [Cyp], Cyp, [Cyp])
-mapFirstStep theses firststeps over goals = (map (\x -> map (\y -> createNewLemmata y (head over) x) (head theses)) (concat fmg), concat fmg, head lastStep, concat tmg)
-	where
-	    lastStep = parseLastStep (head $ head theses) (head $ head firststeps) (head over) (last $ head theses)
-	    (fmg, _ , tmg) = unzip3 mapGoals
-			where
-				mapGoals = concatMap (\z -> map (\(y,x) -> goalLookup x z (head over) (y,x)) goals) (parseFirstStep (head $ head theses) (head $ head firststeps) (head over))
+mapFirstStep :: [Cyp] -> [[Cyp]] -> String -> [(String, TCyp)] -> ([[Cyp]], [Cyp], Cyp, [Cyp])
+mapFirstStep prop firststeps over goals =
+    ( map (\x -> map (\y -> createNewLemmata y over x) prop) (concat fmg)
+    , concat fmg
+    , head lastStep
+    , concat tmg
+    )
+    where
+        lastStep = parseLastStep (head $ prop) (head $ head firststeps) over (last $ prop)
+        (fmg, _ , tmg) = unzip3 mapGoals
+            where
+                mapGoals = concatMap (\z -> map (\(y,x) -> goalLookup x z over (y,x)) goals) (parseFirstStep (head $ prop) (head $ head firststeps) over)
 
 parseFirstStep :: Cyp -> Cyp -> String -> [Cyp]
 parseFirstStep (Variable n) m over
@@ -377,7 +383,8 @@ readLemmas pr global dt = mapMaybe readLemma pr
 
         readProof (ParseInduction over cases) = Induction over' cases'
             where
-                over' = getVariableList $ innerParseList $ over
+                -- XXX: list unnecessary? Parsing awkward ...
+                over' = head $ getVariableList $ innerParseList $ over
                 cases' = map (readCase cases) dt
         readProof (ParseEquation eqns) = Equation $ parseCyps eqns global
 
