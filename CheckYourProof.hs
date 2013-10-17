@@ -45,7 +45,7 @@ type ParseEquations = [String]
 data Prop = Prop Cyp Cyp -- lhs, rhs
 
 data Proof
-    = Induction String [(Cyp, [Cyp])] -- ind var, ...
+    = Induction String [(String, [Cyp])] -- ind var, ...
     -- XXX Induction must contain the datatype of the variable we do induction over
     | Equation [Cyp]
 
@@ -61,10 +61,26 @@ data TCyp = TApplication TCyp TCyp | TConst String | TNRec String | TRec
 tracePretty :: Show a => a -> b -> b
 tracePretty = trace . ppShow
 
+tracePrettyA :: Show a => a -> a
+tracePrettyA x = tracePretty x x
+
+tracePrettyF :: Show b => (a -> b) -> a -> a
+tracePrettyF f x = tracePretty (f x) x
+
+-- proof masterFile studentFile = do
+--     masterContent <- readFile masterFile
+--     parseDecls <- parseMaster masterContent
+-- 
+--     datatype <- readDataType parseDecls
+--     sym <- varToConst $ readSym parseDecls
+--     (func, globalConstList, new) <- readFunc parseDecls sym
+--     let func' = map (\[x,y] -> Prop x y) func
+--     axioms <- readAxiom parseDecls globalConstList
+
 proof masterFile studentFile = do
     parseresult <- parsing masterFile studentFile
 
-    datatype <- tracePretty parseresult $ readDataType parseresult
+    datatype <- {-tracePretty parseresult $-} readDataType parseresult
     sym <- varToConst $ readSym parseresult
     (func, globalConstList, new) <- readFunc parseresult sym
     let func' = map (\[x,y] -> Prop x y) func
@@ -81,18 +97,18 @@ checkProofs axs (l@(Lemma prop _) : ls) dt = checkProof axs l dt : checkProofs (
 checkProof :: [Prop] -> Lemma -> [(String, TCyp)] -> [String]
 checkProof axs (Lemma prop (Equation _)) dt = undefined
 checkProof axs (Lemma prop (Induction over cases)) dt =
-    map (\x -> makeProof prop x over dt axs) [map snd cases]
+    map (\x -> makeProof prop x over dt axs) (map snd cases)
 
 listOfProp :: Prop -> [Cyp]
 listOfProp (Prop l r) = [l, r]
 
-makeProof :: Prop -> [[Cyp]] -> String -> [(String, TCyp)] -> [Prop] -> String
+makeProof :: Prop -> [Cyp] -> String -> [(String, TCyp)] -> [Prop] -> String
 makeProof prop step over datatype rules = proof
     where
         prop' = listOfProp prop -- XXX
         rules' = map listOfProp rules -- XXX
-        (newlemma, variable, laststep, static) = mapFirstStep prop' step over datatype
-        proof = makeSteps (rules' ++ newlemma) (map (\x -> transformVartoConstList x static elem) (head step)) (transformVartoConstList laststep static elem)
+        (newlemma, _, laststep, static) = mapFirstStep prop' step over datatype
+        proof = makeSteps (rules' ++ newlemma) (map (\x -> transformVartoConstList x static elem) step) (transformVartoConstList laststep static elem)
 
 makeSteps rules (x:y:steps) aim 
     | y `elem` applyall x rules = makeSteps rules (y:steps) aim
@@ -255,7 +271,7 @@ true :: a -> b -> Bool
 true _ _ = True
 
 
-mapFirstStep :: [Cyp] -> [[Cyp]] -> String -> [(String, TCyp)] -> ([[Cyp]], [Cyp], Cyp, [Cyp])
+mapFirstStep :: [Cyp] -> [Cyp] -> String -> [(String, TCyp)] -> ([[Cyp]], [Cyp], Cyp, [Cyp])
 mapFirstStep prop firststeps over goals =
     ( map (\x -> map (\y -> createNewLemmata y over x) prop) (concat fmg)
     , concat fmg
@@ -263,10 +279,10 @@ mapFirstStep prop firststeps over goals =
     , concat tmg
     )
     where
-        lastStep = parseLastStep (head $ prop) (head $ head firststeps) over (last $ prop)
+        lastStep = parseLastStep (head $ prop) (head $ firststeps) over (last $ prop)
         (fmg, _ , tmg) = unzip3 mapGoals
             where
-                mapGoals = concatMap (\z -> map (\(y,x) -> goalLookup x z over (y,x)) goals) (parseFirstStep (head $ prop) (head $ head firststeps) over)
+                mapGoals = concatMap (\z -> map (\(y,x) -> goalLookup x z over (y,x)) goals) (parseFirstStep (head $ prop) (head $ firststeps) over)
 
 parseFirstStep :: Cyp -> Cyp -> String -> [Cyp]
 parseFirstStep (Variable n) m over
@@ -389,7 +405,7 @@ readLemmas pr global dt = mapMaybe readLemma pr
         readProof (ParseEquation eqns) = Equation $ parseCyps eqns global
 
         -- XXX do not silently drop invalid cases!
-        readCase cases dtcons = (parseCyp (fst cas) global, parseCyps (snd cas) global)
+        readCase cases dtcons = (fst cas, parseCyps (snd cas) global)
             where
                 dtcons' = trimh $ fst dtcons -- XXX: Unnecessary?
                 cas = case filter (\(name,eqns) -> trimh name == dtcons') cases of
