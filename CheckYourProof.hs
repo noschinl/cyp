@@ -83,24 +83,6 @@ checkProof axs (Lemma prop (Equation _)) dt = undefined
 checkProof axs (Lemma prop (Induction over cases)) dt =
     map (\x -> makeProof prop x over dt axs) [map snd cases]
 
--- proof masterFile studentFile =
--- 	do
--- 		parseresult <- parsing masterFile studentFile
--- 		datatype <- readDataType parseresult
--- 		sym <- varToConst $ readSym parseresult
--- 		(func, globalConstList, new) <- readFunc parseresult sym
--- 		axioms <- readAxiom parseresult globalConstList
--- 		induction <- readInduction parseresult globalConstList
--- 		over <- readOver parseresult
--- 		proof <- readProof parseresult globalConstList datatype over (func ++ axioms) induction
--- 		return proof
--- 
--- readProof pr globalConstList datatype over rules induction =
---     do
--- 		cases <- sequence (map (\x -> readCases pr (fst x) globalConstList) datatype)
--- 		proof <- sequence (map (\x -> makeProof induction x over datatype rules) cases)
--- 		return proof --if not all cases => error message!
-
 makeProof :: Prop -> [[Cyp]] -> [String] -> [(String, TCyp)] -> [Prop] -> String
 makeProof induction step over datatype rules = proof
     where
@@ -407,40 +389,6 @@ readLemmas pr global dt = mapMaybe readLemma pr
                     [] -> undefined -- XXX error message
                     (x:_) -> x
 
---readCases pr x global =
---	do
---		return (innerParseCyps (tin pr x) global)
---	where
---		tin pr x = trim $ inner pr x
---			where		
---				inner ((Cases m p):pr) x 
---					| (trimh m) == (trimh x) = p:(inner pr x)
---					| otherwise = (inner pr x)
---					where
---						trimh = reverse . dropWhile isSpace
---				inner (x:pr) z = inner pr z
---				inner _ _ = []
---
---readInduction pr global = 
---	do
---		return (innerParseCyps (tin pr) global)
---	where
---		tin pr = trim $ inner pr
---			where		
---				inner ((Induction p):pr) = p:(inner pr)
---				inner (x:pr) = inner pr
---				inner _ = []
---
---readOver pr = 
---	do 
---		return (concat $ map getVariableList (map innerParseList (tin pr)))
---	where
---		tin pr = trim $ inner pr
---			where
---				inner ((Over p):pr) = p:(inner pr)
---				inner (x:pr) = inner pr
---				inner _ = []
-
 globalConstList (x:xs) ys = getConstList x ++ (globalConstList xs ys)
 globalConstList [] ((Const y):ys) = y : (globalConstList [] ys)
 globalConstList [] [] = []
@@ -533,11 +481,17 @@ returnParsing (Right a) (Right b) =
 parseMaster input = Text.Parsec.Prim.parse masterFile "(master)" input
 parseStudent input = Text.Parsec.Prim.parse studentParser "(student)" input
 
+eol =   try (string "\n\r")
+    <|> try (string "\r\n")
+    <|> string "\n"
+    <|> string "\r"
+    <?> "end of line"
+
 commentParser :: Parsec [Char] () ()
 commentParser =
     do  string "--" 
         result <- many (noneOf "\r\n")
-        space
+        eol
         return ()
 longcommentParser :: Parsec [Char] () ()
 longcommentParser =
@@ -567,27 +521,27 @@ axiomParser :: Parsec [Char] () ParseTree
 axiomParser =
     do  keyword "lemma" 
         result <- many (noneOf "\r\n")
-        space
+        eol
         return (Axiom result)
 
 dataParser :: Parsec [Char] () ParseTree
 dataParser =
     do  keyword "data"
         result <- many (noneOf "\r\n" )
-        space
+        eol
         return (DataDecl result)
 
 symParser :: Parsec [Char] () ParseTree
 symParser =
     do  keyword "declare_sym" 
         result <- many (noneOf "\r\n")
-        space
+        eol
         return (SymDecl result)
 
 funParser :: Parsec [Char] () ParseTree
 funParser =
     do  result <- many (noneOf "\r\n")
-        space
+        eol
         return (FunDef result)
 
 equationProofParser :: Parsec [Char] () ParseProof
@@ -599,6 +553,7 @@ inductionProofParser :: Parsec [Char] () ParseProof
 inductionProofParser = 
     do  keyword "Proof by induction on"
         over <- many (noneOf "\r\n")
+        eol
         manySpacesOrComment
         cases <- many1 caseParser
         manySpacesOrComment
@@ -609,6 +564,7 @@ lemmaParser :: Parsec [Char] () ParseTree
 lemmaParser =
     do  keyword "Lemma:"
         proposition <- many (noneOf "\r\n")
+        eol
         manySpacesOrComment
         proof <- inductionProofParser <|> equationProofParser
         manySpacesOrComment
@@ -635,6 +591,7 @@ caseParser :: Parsec [Char] () (String, ParseEquations)
 caseParser = do
         keywordCase
         cons <- many1 (noneOf "\r\n")
+        eol
         manySpacesOrComment
         eqns <- manyTill p end
         manySpacesOrComment
@@ -644,46 +601,13 @@ caseParser = do
             spaces
             optional (string "= ")
             res <- many1 (noneOf "\r\n")
+            eol
             manySpacesOrComment
             return res
         end = lookAhead $ (manySpacesOrComment >> (keywordCase <|> keywordQED))
 
-
-
---casesParser ::  Parsec [Char] () [ParseTree]
---casesParser =
---    do  result <- many (noneOf "\r\n")
---        manySpacesOrComment
---        endcase <- manyTill anyCharReturnsExceptComment (try (lookAhead (string "Case")) <|> lookAhead (string "q.e.d."))
---        wascase <- optionMaybe (string "Case")
---        if wascase == Nothing then 
---            return [(Cases result endcase)]
---        else
---            do 
---                nextcase <- casesParser
---                return ([(Cases result endcase)] ++ nextcase)
-
---genParser :: Parsec [Char] () [ParseTree]
---genParser = 
---    do  string "Lemma:"
---        induction <- many (noneOf "\r\n")
---        manySpacesOrComment
---        string "Proof by equotions"
---        manySpacesOrComment
---        eq <- manyTill anyCharReturnsExceptComment (try (lookAhead (string "q.e.d")))
---        manySpacesOrComment
---        string "q.e.d."
---        return [(Gen induction), (GenProof eq)]
---        
-anyCharReturnsExceptComment =
-    do (try (helpCommentParsers) <|> anyChar)
-    where    
-        helpCommentParsers =
-            do 
-                commentParser <|> longcommentParser
-                return ' '
-manySpacesOrComment = 
-    do         
+manySpacesOrComment =
+    do
         many space
         optionMaybe (many commentParsers)
         many space
