@@ -53,10 +53,10 @@ data Lemma = Lemma Prop Proof -- Proposition (_ = _), Proof
 
 
 data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Literal
-  deriving (Show, Eq)
-  
+    deriving (Show, Eq)
+
 data TCyp = TApplication TCyp TCyp | TConst String | TNRec String | TRec
-	deriving (Show, Eq)
+    deriving (Show, Eq)
 
 tracePretty :: Show a => a -> b -> b
 tracePretty = trace . ppShow
