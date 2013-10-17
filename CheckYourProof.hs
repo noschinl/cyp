@@ -379,7 +379,7 @@ readLemmas pr global dt = mapMaybe readLemma pr
             where
                 over' = getVariableList $ innerParseList $ over
                 cases' = map (readCase cases) dt
-        readProof (ParseEquation eqns) = undefined
+        readProof (ParseEquation eqns) = Equation $ parseCyps eqns global
 
         -- XXX do not silently drop invalid cases!
         readCase cases dtcons = (parseCyp (fst cas) global, parseCyps (snd cas) global)
