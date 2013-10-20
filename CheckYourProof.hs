@@ -10,6 +10,8 @@ import Text.Parsec.Prim
 import Text.Parsec.Char
 import Text.Parsec.String
 import Language.Haskell.Exts.Parser 
+import Language.Haskell.Exts.Fixity
+import Language.Haskell.Exts.Extension
 import Language.Haskell.Exts.Syntax(Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..))
 
 import Debug.Trace
@@ -82,7 +84,7 @@ proof masterFile studentFile = do
     parseresult <- parsing masterFile studentFile
     
 
-    datatype <- {- tracePretty parseresult $ -} readDataType parseresult
+    datatype <- {-tracePretty parseresult $-}   readDataType parseresult
     sym <- varToConst $ readSym parseresult
     (func, globalConstList, new) <- readFunc parseresult sym
     let func' = map (\[x,y] -> Prop x y) func
@@ -224,32 +226,31 @@ getConstructorName (TApplication (TConst a) cyp) = a
 getConstructorName (TConst a) = a
 getConstructorName (TApplication cypCurry cyp) = getConstructorName cypCurry
 
-getLists :: Exp -> (ConstList, VariableList)
-getLists (Var v) = ([], [translateQName v])
-getLists (Con c) = ([translateQName c], [])
-getLists (Lit l) = ([], [])
-getLists (InfixApp e1 (QConOp i) e2) = (cs1 ++ cs2 ++ [translateQName i], vs1 ++ vs2)
+strip_comb :: Exp -> (ConstList, VariableList)
+strip_comb x = strib_comb' x True
     where
-        (cs1,vs1) = getLists e1
-        (cs2,vs2) = getLists e2
-getLists (InfixApp e1 (QVarOp i) e2) = (cs1 ++ cs2 ++ [translateQName i], vs1 ++ vs2)
-    where
-        (cs1,vs1) = getLists e1
-        (cs2,vs2) = getLists e2
-{- ganz wichtig für die Erkennung des Namens einer linken Seite der Func Def als Const -}
-getLists (App (Var i) e) = ((translateQName i):cs, vs)
-    where
-        (cs,vs) = getLists e
-getLists (App e1 e2) = (cs1 ++ cs2, vs1 ++ vs2)
-    where
-        (cs1,vs1) = getLists e1
-        (cs2,vs2) = getLists e2
-getLists (Paren e) = getLists e
-getLists (List []) = (["[]"], [])
-getLists (List (x:xs)) = (csh ++ cst ++ [":"], vsh ++ vst)
-    where
-        (csh,vsh) = getLists x
-        (cst,vst) = getLists (List xs)
+        strib_comb' :: Exp -> Bool -> (ConstList, VariableList)
+        strib_comb' (Var n) True = ([translateQName n], [])
+        strib_comb' (Var n) False = ([], [translateQName n])
+        strib_comb' (Con c) _ = ([translateQName c], [])
+        strib_comb' (App e1 e2) b = (cs1 ++ cs2, vs1 ++ vs2)
+            where
+                (cs1,vs1) = strib_comb' e1 b
+                (cs2,vs2) = strib_comb' e2 False
+        strib_comb' (InfixApp e1 (QConOp i) e2) b = (cs1 ++ cs2 ++ [translateQName i], vs1 ++ vs2)
+            where
+                (cs1,vs1) = strib_comb' e1 b
+                (cs2,vs2) = strib_comb' e2 False
+        strib_comb' (InfixApp e1 (QVarOp i) e2) b = (cs1 ++ cs2 ++ [translateQName i], vs1 ++ vs2)
+            where
+                (cs1,vs1) = strib_comb' e1 b
+                (cs2,vs2) = strib_comb' e2 False
+        strib_comb' (Paren e) b = strib_comb' e b
+        strib_comb' (List []) _ = (["[]"], [])
+        strib_comb' (List (x:xs)) _ = (csh ++ cst ++ [":"], vsh ++ vst)
+            where
+                (csh,vsh) = strib_comb' x False
+                (cst,vst) = strib_comb' (List xs) False
 
 getConstList :: (ConstList, VariableList) -> ConstList
 getConstList (cons ,_) = cons
@@ -426,8 +427,9 @@ readLemmas pr global dt = mapMaybe readLemma pr
 
         readProof (ParseInduction over cases) = Induction over' cases'
             where
-                -- XXX: list unnecessary? Parsing awkward ...
-                over' = head $ getVariableList $ innerParseList $ over
+                over' = c
+                    where
+                        (Variable c) = parseOver $ over
                 cases' = map (readCase cases) dt
         readProof (ParseEquation eqns) = Equation $ parseCyps eqns global
 
@@ -448,31 +450,33 @@ parseFunc r l g = zipWith (\a b -> [a, b]) (innerParseFunc r g l head) (innerPar
 innerParseFunc [] _ _ _ = []
 innerParseFunc (x:xs) g (v:vs) f = (parseDef (f (splitStringAt "=" x [])) (g ++ getConstList v) (getVariableList v)):(innerParseFunc xs g vs f)
   where
-    parseDef x g v = translate (transform $ parseExp x) g v elem
+    parseDef x g v = translate (transform $ parseExpWithMode baseParseMode x) g v elem
 
 innerParseList x = parseLists $ head (splitStringAt "=" x [])
 innerParseLists = map innerParseList
 
-parseLists x = getLists $ transform $ parseExp x
+parseLists x = strip_comb $ transform $ parseExpWithMode baseParseMode  x
+
+parseOver x = translate (transform $ parseExpWithMode baseParseMode x) [] [] true
 
 innerParseCyp pr global = Prop lhs rhs
     where [lhs, rhs] = parseCyps (splitStringAt "=" pr []) global
 innerParseCyps prs global = map (\pr -> innerParseCyp pr global) prs
 
-parseCyp x global = translate (transform $ parseExp x) global [] true
+parseCyp x global = translate (transform $ parseExpWithMode baseParseMode x) global [] true
 parseCyps xs global = map (\x -> parseCyp x global) xs
 
 innerParseSym [] = []
 innerParseSym (x:xs) = parseSym (splitStringAt "=" x []):(innerParseSym xs)
 
 parseSym [] = []
-parseSym (x:xs) = (translate (transform $ parseExp x) [] [] true)  : (parseSym xs)
+parseSym (x:xs) = (translate (transform $ parseExpWithMode baseParseMode x) [] [] true)  : (parseSym xs)
 
 innerParseDataType [] = []
 innerParseDataType (x:xs) = parseDataType (splitStringAt "=|" x []):(innerParseDataType xs)
 
 parseDataType [] = []
-parseDataType (x:xs) = (translateToTyp (translate (transform $ parseExp x) [] [] true))  : (parseDataType xs)
+parseDataType (x:xs) = (translateToTyp (translate (transform $ parseExpWithMode baseParseMode x) [] [] true))  : (parseDataType xs)
 
 transform (ParseOk a) = a
     	
@@ -688,4 +692,15 @@ manySpacesOrComment =
         optionMaybe (many commentParsers)
         many space
         return ()
+        
+        
+-- Parse Mode with Fixities
 
+baseParseMode :: ParseMode
+baseParseMode = ParseMode {
+        parseFilename = "<unknown>.hs",
+        extensions = [],
+        ignoreLanguagePragmas = False,
+        ignoreLinePragmas = True,
+        fixities = Just baseFixities
+}

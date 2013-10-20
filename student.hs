@@ -30,6 +30,6 @@ q.e.d.-}
 
 Lemma: length (reverse [1,2]) = length [1,2]
 Proof
-    length (reverse [3,2])
-     = length [3,2]
+    length (reverse [1,2])
+     = length [1,2]
 QED
