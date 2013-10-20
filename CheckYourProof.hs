@@ -82,17 +82,12 @@ tracePrettyF f x = tracePretty (f x) x
 
 proof masterFile studentFile = do
     parseresult <- parsing masterFile studentFile
-    
 
-    datatype <- {-tracePretty parseresult $-}   readDataType parseresult
-    sym <- varToConst $ readSym parseresult
-    (func, globalConstList, new) <- readFunc parseresult sym
-    let func' = map (\[x,y] -> Prop x y) func
-    axioms <- readAxiom parseresult globalConstList
-
+    let datatype = {-tracePretty parseresult $-}   readDataType parseresult
+    let (func, globalConstList) = readFunc parseresult (varToConst $ readSym parseresult)
     let lemmas = readLemmas parseresult globalConstList datatype -- lemmas -change name?
-    let proof = checkProofs (func' ++ axioms) lemmas datatype
-    return proof
+    
+    return $ checkProofs ((map (\[x,y] -> Prop x y) func) ++ (readAxiom parseresult globalConstList)) lemmas datatype
 
 checkProofs :: [Prop] -> [Lemma] -> [(String, TCyp)] -> [[String]]
 checkProofs axs [] dt  = []
@@ -361,10 +356,7 @@ createNewLemmata (Const a) over (Variable b)
 	| otherwise = Const a
 createNewLemmata (Literal a) _ _ = Literal a
 
-varToConst xs =
-  do 
-    cyp <- xs
-    return (concatMap (map transformVartoConst) cyp)
+varToConst xs = concatMap (map transformVartoConst) xs
 
 transformVartoConst :: Cyp -> Cyp
 transformVartoConst x = transformVartoConstList x [] true
@@ -376,9 +368,7 @@ transformVartoConstList (Const v) _ _ = Const v
 transformVartoConstList (Application cypCurry cyp) list f = Application (transformVartoConstList cypCurry list f) (transformVartoConstList cyp list f)
 transformVartoConstList (Literal a) _ _ = Literal a
 
-readDataType pr = 
-	do
-		return (getGoals (tail $ head $ (innerParseDataType (tin pr))) (head $ head $ (innerParseDataType (tin pr))))
+readDataType pr = getGoals (tail $ head $ (innerParseDataType (tin pr))) (head $ head $ (innerParseDataType (tin pr)))
 	where
 		tin pr = trim $ inner pr
 			where
@@ -386,9 +376,7 @@ readDataType pr =
 				inner (x:pr) = inner pr
 				inner _ = []
 
-readAxiom pr global = 
-	do
-		return (innerParseCyps (tin pr) global)
+readAxiom pr global = innerParseCyps (tin pr) global
 	where
 		tin pr = trim $ inner pr
 			where		
@@ -396,9 +384,7 @@ readAxiom pr global =
 				inner (x:pr) = inner pr
 				inner _ = []
 
-readSym pr = 
-	do
-		return (innerParseSym (tin pr))
+readSym pr = innerParseSym (tin pr)
 	where
 		tin pr = trim $ inner pr
 			where		
@@ -406,10 +392,8 @@ readSym pr =
 				inner (x:pr) = inner pr
 				inner _ = []
 
-readFunc :: Monad m => [ParseTree] -> [Cyp] -> m ([[Cyp]], [String], [(ConstList, VariableList)])
-readFunc pr sym = 
-	do
-		return (parseFunc (tin pr) (innerParseLists (tin pr)) (nub $ globalConstList [] sym), nub $ globalConstList (innerParseLists (tin pr)) sym, (innerParseLists (tin pr)))
+readFunc :: [ParseTree] -> [Cyp] -> ([[Cyp]], [String])
+readFunc pr sym = (parseFunc (tin pr) (innerParseLists (tin pr)) (nub $ globalConstList [] sym), nub $ globalConstList (innerParseLists (tin pr)) sym)
 	where
 		tin pr = trim $ inner pr
 			where
