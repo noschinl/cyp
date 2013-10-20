@@ -130,7 +130,7 @@ validEquationProof rules eqns aim = do
 
 
 
-
+makeSteps :: [[Cyp]] -> [Cyp] -> Cyp -> [Char]
 makeSteps rules (x:y:steps) aim 
     | y `elem` applyall x rules = makeSteps rules (y:steps) aim
     | otherwise = "Error - (nmr) No matching rule: step " ++ printInfo x ++ " to " ++ printInfo  y
@@ -139,6 +139,7 @@ makeSteps rules [x] aim
     | x /= aim = "Error - (eop) End of proof is not the right side of induction: " ++ printInfo x ++ " to " ++ printInfo aim
 makeSteps _ _ _ = "Error"
 
+applyall :: Cyp -> [[Cyp]] -> [Cyp]
 applyall step rules = concatMap (\rule -> concat $ nub [apply step (x, y) | x <- rule, y <- rule]) rules
 
 
@@ -182,7 +183,8 @@ edit (Variable a) x = extract (lookup (Variable a) x)
 	where
 		extract (Just n) = n
 		extract (Nothing) = (Variable a)
-	
+		
+printCypEquoations :: [[Cyp]] -> [[String]]
 printCypEquoations [] = []
 printCypEquoations (x:xs) = [map printInfo x] ++ (printCypEquoations xs)
 
@@ -213,10 +215,12 @@ getGoal maybeGoal@(TConst a) goal
     | maybeGoal == goal = TRec
     | otherwise = TConst a
 
+translateToTyp :: Cyp -> TCyp
 translateToTyp (Application cypcurry cyp) = TApplication (translateToTyp cypcurry) (translateToTyp cyp)
 translateToTyp (Variable a) = TNRec a
 translateToTyp (Const a) = TConst a
 
+getConstructorName :: TCyp -> String
 getConstructorName (TApplication (TConst a) cyp) = a
 getConstructorName (TConst a) = a
 getConstructorName (TApplication cypCurry cyp) = getConstructorName cypCurry
@@ -269,6 +273,7 @@ translate (List l) cl vl f
     | null(l) = Const ("[]")
     | otherwise = Application (Application (Const (":")) (translate (head l) cl vl f)) (translate (List (tail l)) cl vl f)
 
+translateQName :: QName -> String
 translateQName (Qual (ModuleName m) (Ident n)) = m ++ "." ++ n
 translateQName (Qual (ModuleName m) (Symbol n)) = m ++ "." ++ n
 translateQName (UnQual (Ident n)) = n
@@ -279,6 +284,7 @@ translateQName (Special FunCon) = "->"
 translateQName (Special Cons) = ":"
 translateQName _ = ""
 
+translateLiteral :: Literal -> String
 translateLiteral (Char c) = [c]
 translateLiteral (String s) = s
 translateLiteral (Int c) = show c
@@ -356,6 +362,7 @@ createNewLemmata (Const a) over (Variable b)
 	| otherwise = Const a
 createNewLemmata (Literal a) _ _ = Literal a
 
+varToConst :: [[Cyp]] -> [Cyp]
 varToConst xs = concatMap (map transformVartoConst) xs
 
 transformVartoConst :: Cyp -> Cyp
@@ -368,7 +375,8 @@ transformVartoConstList (Const v) _ _ = Const v
 transformVartoConstList (Application cypCurry cyp) list f = Application (transformVartoConstList cypCurry list f) (transformVartoConstList cyp list f)
 transformVartoConstList (Literal a) _ _ = Literal a
 
-readDataType pr = getGoals (tail $ head $ (innerParseDataType (tin pr))) (head $ head $ (innerParseDataType (tin pr)))
+readDataType :: [ParseTree] -> [(String, TCyp)]
+readDataType pr = getGoals (tail $ head $ (innerParseDataTypes (tin pr))) (head $ head $ (innerParseDataTypes (tin pr)))
 	where
 		tin pr = trim $ inner pr
 			where
@@ -376,6 +384,7 @@ readDataType pr = getGoals (tail $ head $ (innerParseDataType (tin pr))) (head $
 				inner (x:pr) = inner pr
 				inner _ = []
 
+readAxiom :: [ParseTree] -> [String] -> [Prop]
 readAxiom pr global = innerParseCyps (tin pr) global
 	where
 		tin pr = trim $ inner pr
@@ -384,7 +393,8 @@ readAxiom pr global = innerParseCyps (tin pr) global
 				inner (x:pr) = inner pr
 				inner _ = []
 
-readSym pr = innerParseSym (tin pr)
+readSym :: [ParseTree] -> [[Cyp]]
+readSym pr = innerParseSyms (tin pr)
 	where
 		tin pr = trim $ inner pr
 			where		
@@ -400,7 +410,8 @@ readFunc pr sym = (parseFunc (tin pr) (innerParseLists (tin pr)) (nub $ globalCo
 			inner ((FunDef p):pr) = p:(inner pr)
 			inner (x:pr) = inner pr
 			inner _ = []
-
+			
+readLemmas :: [ParseTree] -> [String] -> [(String, TCyp)] -> [Lemma]
 readLemmas pr global dt = mapMaybe readLemma pr
     where
         readLemma (ParseLemma prop proof) = Just (Lemma prop' proof')
@@ -425,43 +436,66 @@ readLemmas pr global dt = mapMaybe readLemma pr
                     [] -> undefined -- XXX error message
                     (x:_) -> x
 
+globalConstList :: [(ConstList, VariableList)] -> [Cyp] -> [String]
 globalConstList (x:xs) ys = getConstList x ++ (globalConstList xs ys)
 globalConstList [] ((Const y):ys) = y : (globalConstList [] ys)
 globalConstList [] [] = []
 
+parseFunc :: [[Char]] -> [(ConstList, VariableList)] -> [String] -> [[Cyp]]
 parseFunc r l g = zipWith (\a b -> [a, b]) (innerParseFunc r g l head) (innerParseFunc r g l last)
 
+innerParseFunc :: [[Char]] -> [String] -> [(ConstList, VariableList)] -> ([[Char]] -> String) -> [Cyp]
 innerParseFunc [] _ _ _ = []
 innerParseFunc (x:xs) g (v:vs) f = (parseDef (f (splitStringAt "=" x [])) (g ++ getConstList v) (getVariableList v)):(innerParseFunc xs g vs f)
   where
     parseDef x g v = translate (transform $ parseExpWithMode baseParseMode x) g v elem
 
+innerParseList :: [Char] -> (ConstList, VariableList)
 innerParseList x = parseLists $ head (splitStringAt "=" x [])
+
+innerParseLists :: [[Char]] -> [(ConstList, VariableList)]
 innerParseLists = map innerParseList
 
+parseLists :: String -> (ConstList, VariableList)
 parseLists x = strip_comb $ transform $ parseExpWithMode baseParseMode  x
 
+parseOver :: String -> Cyp
 parseOver x = translate (transform $ parseExpWithMode baseParseMode x) [] [] true
 
+innerParseCyp :: [Char] -> [String] -> Prop
 innerParseCyp pr global = Prop lhs rhs
     where [lhs, rhs] = parseCyps (splitStringAt "=" pr []) global
+    
+innerParseCyps :: [String] -> [String] -> [Prop]
 innerParseCyps prs global = map (\pr -> innerParseCyp pr global) prs
 
+parseCyp :: String -> ConstList -> Cyp
 parseCyp x global = translate (transform $ parseExpWithMode baseParseMode x) global [] true
+
+parseCyps :: [String] -> ConstList -> [Cyp]
 parseCyps xs global = map (\x -> parseCyp x global) xs
 
-innerParseSym [] = []
-innerParseSym (x:xs) = parseSym (splitStringAt "=" x []):(innerParseSym xs)
+innerParseSyms :: [String] -> [[Cyp]]
+innerParseSyms xs = map (innerParseSym) xs
 
+innerParseSym :: [Char] -> [Cyp]
+innerParseSym x = parseSym (splitStringAt "=" x [])
+
+parseSym :: [String] -> [Cyp]
 parseSym [] = []
 parseSym (x:xs) = (translate (transform $ parseExpWithMode baseParseMode x) [] [] true)  : (parseSym xs)
 
-innerParseDataType [] = []
-innerParseDataType (x:xs) = parseDataType (splitStringAt "=|" x []):(innerParseDataType xs)
+innerParseDataTypes :: [String] -> [[TCyp]]
+innerParseDataTypes xs = map innerParseDataType xs
 
+innerParseDataType :: [Char] -> [TCyp]
+innerParseDataType x = parseDataType (splitStringAt "=|" x [])
+
+parseDataType :: [String] -> [TCyp]
 parseDataType [] = []
 parseDataType (x:xs) = (translateToTyp (translate (transform $ parseExpWithMode baseParseMode x) [] [] true))  : (parseDataType xs)
 
+transform :: ParseResult t -> t
 transform (ParseOk a) = a
     	
 deleteAll :: Eq a => [a] -> (a->Bool) -> [a]
@@ -485,6 +519,7 @@ trimh = reverse . dropWhile isSpace . reverse . dropWhile isSpace
 trim :: [String] -> [String]
 trim = map trimh
 
+replace :: Eq a => [a] -> [a] -> [a] -> [a]
 replace _ _ [] = []
 replace old new (x:xs) 
 	| isPrefixOf old (x:xs) = new ++ drop (length old) (x:xs)
@@ -497,13 +532,15 @@ parsing masterFile studentFile =
 		studentContent <- readFile studentFile
 		result <- returnParsing (parseMaster masterContent) (parseStudent studentContent)
 		return $ removeEmptyFun result
-
+		
+removeEmptyFun :: [ParseTree] -> [ParseTree]
 removeEmptyFun ((FunDef x):xs)
 	| length (splitStringAt "=" x []) > 0 = (FunDef x) : removeEmptyFun xs
 	| otherwise = removeEmptyFun xs
 removeEmptyFun (x:xs) = x:removeEmptyFun xs
 removeEmptyFun [] = []
-		
+	
+returnParsing :: (Show a, Show b) => Either a [c] -> Either b [c] -> IO [c]	
 returnParsing (Left a) _ = 
     do
         putStr $ show a
