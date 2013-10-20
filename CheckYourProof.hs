@@ -12,18 +12,47 @@ import Text.Parsec.String
 import Language.Haskell.Exts.Parser 
 import Language.Haskell.Exts.Fixity
 import Language.Haskell.Exts.Extension
-import Language.Haskell.Exts.Syntax(Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..))
+import Language.Haskell.Exts.Syntax (Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..))
 
 import Debug.Trace
 import Text.Show.Pretty (ppShow)
 
 {-
-Copyright by Dominik Durner / Technische Universität München - Institute for Informatics - Chair for Logic and Verification (I21)
+
+This software is released under the BSD3 license.
+
+Copyright (c) 2013 Dominik Durner (Wiesbachstraße 5, 86529 Schrobenhausen, Germany) 
+    & TU München, Institut for Informatics, Chair for Logic and Verification (I21)
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * Neither the name of the TU München nor the
+      names of its contributors may be used to endorse or promote products
+      derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL COPYRIGHT HOLDER BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
 
 Check Your Proof (CYP)
- What is CYP?
- Check your Proof is a functional program for students to check the correctness of their proofs by induction over simple data structures (e.g. List, Trees)
-	noschinl = Wiweni64
+    What is CYP?
+        Check your Proof is a functional program for students to check the correctness of their 
+            proofs by induction over simple data structures (e.g. List, Trees)
 -}
 
 type ConstList = [String]
@@ -69,16 +98,6 @@ tracePrettyA x = tracePretty x x
 
 tracePrettyF :: Show b => (a -> b) -> a -> a
 tracePrettyF f x = tracePretty (f x) x
-
--- proof masterFile studentFile = do
---     masterContent <- readFile masterFile
---     parseDecls <- parseMaster masterContent
--- 
---     datatype <- readDataType parseDecls
---     sym <- varToConst $ readSym parseDecls
---     (func, globalConstList, new) <- readFunc parseDecls sym
---     let func' = map (\[x,y] -> Prop x y) func
---     axioms <- readAxiom parseDecls globalConstList
 
 proof masterFile studentFile = do
     parseresult <- parsing masterFile studentFile
