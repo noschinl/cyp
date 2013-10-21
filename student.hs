@@ -28,8 +28,9 @@ Proof by equotions
 Proof by biatch-
 q.e.d.-}
 
-Lemma: length (reverse [1,2]) = length [1,2]
+Lemma: length (reverse (1 : ys)) = 1 + length ys
 Proof
-    length (reverse [1,2])
-     = length [1,2]
+    length (reverse (1 : ys))
+    = length (1 : ys)
+    = 1 + length ys
 QED

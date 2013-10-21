@@ -108,22 +108,19 @@ proof masterFile studentFile = do
     
     return $ checkProofs ((map (\[x,y] -> Prop x y) func) ++ (readAxiom parseresult globalConstList)) lemmas datatype
 
-checkProofs :: [Prop] -> [Lemma] -> [(String, TCyp)] -> [[String]]
-checkProofs axs [] dt  = []
-checkProofs axs (l@(Lemma prop _) : ls) dt = checkProof axs l dt : checkProofs (prop : axs) ls dt
+checkProofs :: [Prop] -> [Lemma] -> [(String, TCyp)] -> Either String [Prop]
+checkProofs axs [] dt  = Right axs
+checkProofs axs (l@(Lemma prop _) : ls) dt = checkProof axs l dt >> checkProofs (prop : axs) ls dt
 
-checkProof :: [Prop] -> Lemma -> [(String, TCyp)] -> [String]
-checkProof axs (Lemma prop (Equation eqns)) _ = 
-    case validEquationProof axs eqns prop of
-        Left err -> [err]
-        Right _ -> []
+checkProof :: [Prop] -> Lemma -> [(String, TCyp)] -> Either String ()
+checkProof axs (Lemma prop (Equation eqns)) _ = validEquationProof axs eqns prop
 checkProof axs (Lemma prop (Induction over cases)) dt =
-    map (\x -> makeProof prop x over dt axs) (map snd cases)
+    sequence_ $ map (\x -> makeProof prop x over dt axs) (map snd cases)
 
 listOfProp :: Prop -> [Cyp]
 listOfProp (Prop l r) = [l, r]
 
-makeProof :: Prop -> [Cyp] -> String -> [(String, TCyp)] -> [Prop] -> String
+makeProof :: Prop -> [Cyp] -> String -> [(String, TCyp)] -> [Prop] -> Either String ()
 makeProof prop step over datatype rules = proof
     where
         prop' = listOfProp prop -- XXX
@@ -149,33 +146,33 @@ validEquationProof rules eqns aim = do
 
 
 
-makeSteps :: [[Cyp]] -> [Cyp] -> Cyp -> [Char]
+makeSteps :: [[Cyp]] -> [Cyp] -> Cyp -> Either String ()
 makeSteps rules (x:y:steps) aim 
     | y `elem` applyall x rules = makeSteps rules (y:steps) aim
-    | otherwise = "Error - (nmr) No matching rule: step " ++ printInfo x ++ " to " ++ printInfo  y
+    | otherwise = Left $ "Error - (nmr) No matching rule: step " ++ printInfo x ++ " to " ++ printInfo  y
 makeSteps rules [x] aim 
-    | x == aim = []
-    | x /= aim = "Error - (eop) End of proof is not the right side of induction: " ++ printInfo x ++ " to " ++ printInfo aim
-makeSteps _ _ _ = "Error"
+    | x == aim = Right ()
+    | x /= aim = Left $ "Error - (eop) End of proof is not the right side of induction: " ++ printInfo x ++ " to " ++ printInfo aim
+makeSteps _ _ _ = Left $ "Error"
 
 applyall :: Cyp -> [[Cyp]] -> [Cyp]
 applyall step rules = concatMap (\rule -> concat $ nub [apply step (x, y) | x <- rule, y <- rule]) rules
 
+match :: Cyp -> Cyp -> [(String, Cyp)] -> Maybe [(String, Cyp)]
+match (Application f a) (Application f' a') s = match f f' s >>= match a a'
+match (Literal a) (Literal b) s
+    | a == b = Just s
+    | otherwise = Nothing
+match (Const a) (Const b) s
+    | a == b = Just s
+    | otherwise = Nothing
+match t (Variable v) s = case lookup v s of
+    Nothing -> Just $ (v,t) : s
+    Just t' -> if t == t' then Just s else Nothing
+match _ _ _ = Nothing
 
-match :: Cyp -> Cyp -> Maybe [(String, Cyp)]
-match term pat = match' term pat []
-    where
-        match' (Application f a) (Application f' a') s = match' f f' s >>= match' a a'
-        match' (Literal a) (Literal b) s
-            | a == b = Just s
-            | otherwise = Nothing
-        match' (Const a) (Const b) s
-            | a == b = Just s
-            | otherwise = Nothing
-        match' t (Variable v) s = case lookup v s of
-            Nothing -> Just $ (v,t) : s
-            Just t' -> if t == t' then Just s else Nothing
-        match' _ _ _ = Nothing
+matchProp :: Prop -> Prop -> [(String, Cyp)] -> Maybe [(String, Cyp)]
+matchProp (Prop l r) (Prop l' r') s = match l l' s >>= match r r'
 
 subst :: Cyp -> [(String, Cyp)] -> Cyp
 subst (Application f a) s = Application (subst f s) (subst a s)
@@ -185,7 +182,7 @@ subst (Variable v) s = case lookup v s of
 subst t _ = t
 
 apply_top :: Cyp -> (Cyp,Cyp) -> Maybe Cyp
-apply_top t (lhs, rhs) = fmap (subst rhs) $ match t lhs
+apply_top t (lhs, rhs) = fmap (subst rhs) $ match t lhs []
 
 apply :: Cyp -> (Cyp,Cyp) -> [Cyp]
 apply t@(Application f a) eq =
@@ -245,30 +242,30 @@ getConstructorName (TConst a) = a
 getConstructorName (TApplication cypCurry cyp) = getConstructorName cypCurry
 
 strip_comb :: Exp -> (ConstList, VariableList)
-strip_comb x = strib_comb' x True
+strip_comb x = strip_comb' x True
     where
-        strib_comb' :: Exp -> Bool -> (ConstList, VariableList)
-        strib_comb' (Var n) True = ([translateQName n], [])
-        strib_comb' (Var n) False = ([], [translateQName n])
-        strib_comb' (Con c) _ = ([translateQName c], [])
-        strib_comb' (App e1 e2) b = (cs1 ++ cs2, vs1 ++ vs2)
+        strip_comb' :: Exp -> Bool -> (ConstList, VariableList)
+        strip_comb' (Var n) True = ([translateQName n], [])
+        strip_comb' (Var n) False = ([], [translateQName n])
+        strip_comb' (Con c) _ = ([translateQName c], [])
+        strip_comb' (App e1 e2) b = (cs1 ++ cs2, vs1 ++ vs2)
             where
-                (cs1,vs1) = strib_comb' e1 b
-                (cs2,vs2) = strib_comb' e2 False
-        strib_comb' (InfixApp e1 (QConOp i) e2) b = (cs1 ++ cs2 ++ [translateQName i], vs1 ++ vs2)
+                (cs1,vs1) = strip_comb' e1 b
+                (cs2,vs2) = strip_comb' e2 False
+        strip_comb' (InfixApp e1 (QConOp i) e2) b = ([translateQName i] ++ cs1 ++ cs2 , vs1 ++ vs2)
             where
-                (cs1,vs1) = strib_comb' e1 b
-                (cs2,vs2) = strib_comb' e2 False
-        strib_comb' (InfixApp e1 (QVarOp i) e2) b = (cs1 ++ cs2 ++ [translateQName i], vs1 ++ vs2)
+                (cs1,vs1) = strip_comb' e1 b
+                (cs2,vs2) = strip_comb' e2 False
+        strip_comb' (InfixApp e1 (QVarOp i) e2) b = ([translateQName i] ++ cs1 ++ cs2, vs1 ++ vs2)
             where
-                (cs1,vs1) = strib_comb' e1 b
-                (cs2,vs2) = strib_comb' e2 False
-        strib_comb' (Paren e) b = strib_comb' e b
-        strib_comb' (List []) _ = (["[]"], [])
-        strib_comb' (List (x:xs)) _ = (csh ++ cst ++ [":"], vsh ++ vst)
+                (cs1,vs1) = strip_comb' e1 b
+                (cs2,vs2) = strip_comb' e2 False
+        strip_comb' (Paren e) b = strip_comb' e b
+        strip_comb' (List []) _ = (["[]"], [])
+        strip_comb' (List (x:xs)) _ = ([":"] ++ csh ++ cst, vsh ++ vst)
             where
-                (csh,vsh) = strib_comb' x False
-                (cst,vst) = strib_comb' (List xs) False
+                (csh,vsh) = strip_comb' x False
+                (cst,vst) = strip_comb' (List xs) False
 
 getConstList :: (ConstList, VariableList) -> ConstList
 getConstList (cons ,_) = cons
