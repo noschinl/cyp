@@ -707,25 +707,6 @@ caseParser = do
     manySpacesOrComment
     return (cons, eqns)
 
--- caseParser :: Parsec [Char] () (String, ParseEquations)
--- caseParser = do
---         keywordCase
---         cons <- many1 (noneOf "\r\n")
---         eol
---         manySpacesOrComment
---         eqns <- manyTill p end
---         manySpacesOrComment
---         return (cons, eqns)
---     where
---         p = do
---             spaces
---             optional (string "= ")
---             res <- many1 (noneOf "\r\n")
---             eol
---             manySpacesOrComment
---             return res
---         end = lookAhead $ (manySpacesOrComment >> (keywordCase <|> keywordQED))
-
 manySpacesOrComment =
     do
         many space
