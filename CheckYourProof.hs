@@ -21,7 +21,9 @@ import Text.Show.Pretty (ppShow)
 This software is released under the BSD3 license.
 
 Copyright (c) 2013 Dominik Durner (Wiesbachstraße 5, 86529 Schrobenhausen, Germany) 
-    & TU München, Institut for Informatics, Chair for Logic and Verification (I21)
+	& Lars Noschinski (Boltzmannstr. 3, 85748 Garching, Germany)
+    & TU München, Institut for Informatics, Chair for Logic and Verification (I21) 
+    	(Boltzmannstr. 3, 85748 Garching, Germany)
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -113,15 +115,18 @@ proof masterFile studentFile = do
 
 checkProofs :: [Prop] -> [Lemma] -> [DataType] -> Either String [Prop]
 checkProofs axs [] dt  = Right axs
-checkProofs axs (l@(Lemma prop _) : ls) dt = checkProof axs l dt >> checkProofs (prop : axs) ls dt
+checkProofs axs (l@(Lemma prop _) : ls) dt = checkProof axs l dt  >> checkProofs (prop : axs) ls dt
+
 
 checkProof :: [Prop] -> Lemma -> [DataType] -> Either String ()
 checkProof axs (Lemma prop (Equation eqns)) _ = validEquationProof axs eqns prop
 checkProof axs (Lemma prop (Induction datatype over cases)) dt =
-    traverse_ (\x -> makeProof prop x over sdt axs) (map snd cases)
+    traverse_ (\x -> check x) cases
         where 
-            (Right sdt) = (selectDataType dt datatype)
-            -- XXX Left? -> Error
+        	(Right sdt) = (selectDataType dt datatype) --XXX Error Message falls Typ nicht existiert
+        	check cas = case (makeProof prop (snd cas) over sdt axs) of
+        		Right x -> Right x
+        		Left x -> Left $ "Error in case '" ++ (fst cas) ++ "' " ++ x
 
 selectDataType :: [DataType] -> String -> Either String DataType
 selectDataType ((DataType d m):dt) name 
@@ -136,8 +141,8 @@ listOfProp (Prop l r) = [l, r]
 makeProof :: Prop -> [Cyp] -> String -> DataType -> [Prop] -> Either String ()
 makeProof prop step over (DataType name datatype) rules = proof
     where
-        prop' = listOfProp prop -- XXX
-        rules' = map listOfProp rules -- XXX
+        prop' = listOfProp prop
+        rules' = map listOfProp rules
         (newlemma, _, laststep, static) = mapFirstStep prop' step over datatype
         -- XXX: get rid of makeSteps
         proof = makeSteps (rules' ++ newlemma) (map (\x -> transformVartoConstList x static elem) step) 
@@ -163,10 +168,10 @@ validEquationProof rules eqns aim = do
 makeSteps :: [[Cyp]] -> [Cyp] -> Cyp -> Either String ()
 makeSteps rules (x:y:steps) aim 
     | y `elem` applyall x rules = makeSteps rules (y:steps) aim
-    | otherwise = Left $ "Error - (nmr) No matching rule: step " ++ printInfo x ++ " to " ++ printInfo  y
+    | otherwise = Left $ "(nmr) No matching rule: step " ++ printInfo x ++ " to " ++ printInfo  y
 makeSteps rules [x] aim 
     | x == aim = Right ()
-    | x /= aim = Left $ "Error - (eop) End of proof is not the right side of induction: " ++ printInfo x ++ " to " ++ printInfo aim
+    | x /= aim = Left $ "(eop) End of proof is not the right side of induction: " ++ printInfo x ++ " to " ++ printInfo aim
 makeSteps _ _ _ = Left $ "Error"
 
 applyall :: Cyp -> [[Cyp]] -> [Cyp]
@@ -471,7 +476,7 @@ readLemmas pr global dt = mapMaybe readLemma pr
         -- XXX do not silently drop invalid cases!
         readCase cases dtcons = (fst cas, parseCyps (snd cas) global)
             where
-                dtcons' = trimh $ fst dtcons -- XXX: Unnecessary?
+                dtcons' = trimh $ fst dtcons
                 cas = case filter (\(name,eqns) -> trimh name == dtcons') cases of
                     [] -> undefined -- XXX error message
                     (x:_) -> x
