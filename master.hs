@@ -1,4 +1,5 @@
-data [a] = Nil | a : [a]
+data List a = [] | a : (List a)
+data Tree a = Leaf | Tree a (Tree a) (Tree a)
 
 declare_sym (+)
 declare_sym (++)
@@ -17,7 +18,7 @@ lemma sum (map length ((map f xs))) = sum (map length xs)
 length (reverse:reverses) = 1 + length reverses
 length (x:xs) f = 1 `f` length xs
 
-length Nil = 0
+length [] = 0
 
 reverse (x:xs) = (reverse xs) ++ [x]
-reverse Nil = Nil
+reverse [] = []

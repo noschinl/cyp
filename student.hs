@@ -1,12 +1,12 @@
 Lemma: length (reverse ys) = length ys
 
-Proof by induction on ys
+Proof by induction on List ys
 
 -- Cases
 
-Case Nil
-    length (reverse Nil) 
-    = length Nil
+Case []
+    length (reverse []) 
+    = length []
     
 {-Between Case-}
 

@@ -1,7 +1,6 @@
 module CheckYourProof where
 import Data.Char
 import Control.Monad
---import Text.Regex
 import Data.List
 import Data.Maybe
 import Text.Parsec
@@ -12,8 +11,8 @@ import Text.Parsec.String
 import Language.Haskell.Exts.Parser 
 import Language.Haskell.Exts.Fixity
 import Language.Haskell.Exts.Extension
+import Data.Foldable (traverse_)
 import Language.Haskell.Exts.Syntax (Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..))
-
 import Debug.Trace
 import Text.Show.Pretty (ppShow)
 
@@ -67,21 +66,25 @@ data ParseTree
     deriving Show
 
 data ParseProof
-    = ParseInduction String [(String, ParseEquations)] -- Over, Cases
+    = ParseInduction String String [(String, ParseEquations)] -- DataTyp, Over, Cases
     | ParseEquation ParseEquations
     deriving Show
 
 type ParseEquations = [String]
 
+data DataType = DataType String [(String, TCyp)] -- name cases
+    deriving (Show)
+
 data Prop = Prop Cyp Cyp
     deriving (Eq, Show) -- lhs, rhs
 
 data Proof
-    = Induction String [(String, [Cyp])] -- ind var, ...
-    -- XXX Induction must contain the datatype of the variable we do induction over
+    = Induction String String [(String, [Cyp])] -- typ ,ind var, ...
     | Equation [Cyp]
+    deriving (Show)
 
 data Lemma = Lemma Prop Proof -- Proposition (_ = _), Proof
+    deriving (Show)
 
 
 data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Literal
@@ -102,32 +105,43 @@ tracePrettyF f x = tracePretty (f x) x
 proof masterFile studentFile = do
     parseresult <- parsing masterFile studentFile
 
-    let datatype = {-tracePretty parseresult $-}   readDataType parseresult
+    let datatype = {-tracePretty parseresult $ tracePrettyA $-} readDataType parseresult
     let (func, globalConstList) = readFunc parseresult (varToConst $ readSym parseresult)
     let lemmas = readLemmas parseresult globalConstList datatype -- lemmas -change name?
     
     return $ checkProofs ((map (\[x,y] -> Prop x y) func) ++ (readAxiom parseresult globalConstList)) lemmas datatype
 
-checkProofs :: [Prop] -> [Lemma] -> [(String, TCyp)] -> Either String [Prop]
+checkProofs :: [Prop] -> [Lemma] -> [DataType] -> Either String [Prop]
 checkProofs axs [] dt  = Right axs
 checkProofs axs (l@(Lemma prop _) : ls) dt = checkProof axs l dt >> checkProofs (prop : axs) ls dt
 
-checkProof :: [Prop] -> Lemma -> [(String, TCyp)] -> Either String ()
+checkProof :: [Prop] -> Lemma -> [DataType] -> Either String ()
 checkProof axs (Lemma prop (Equation eqns)) _ = validEquationProof axs eqns prop
-checkProof axs (Lemma prop (Induction over cases)) dt =
-    sequence_ $ map (\x -> makeProof prop x over dt axs) (map snd cases)
+checkProof axs (Lemma prop (Induction datatype over cases)) dt =
+    traverse_ (\x -> makeProof prop x over sdt axs) (map snd cases)
+        where 
+            (Right sdt) = (selectDataType dt datatype)
+            -- XXX Left? -> Error
+
+selectDataType :: [DataType] -> String -> Either String DataType
+selectDataType ((DataType d m):dt) name 
+    | d == name = Right $ (DataType d m)
+    | otherwise = selectDataType dt name
+selectDataType [] _ = Left $ "False name for DataType"
+
 
 listOfProp :: Prop -> [Cyp]
 listOfProp (Prop l r) = [l, r]
 
-makeProof :: Prop -> [Cyp] -> String -> [(String, TCyp)] -> [Prop] -> Either String ()
-makeProof prop step over datatype rules = proof
+makeProof :: Prop -> [Cyp] -> String -> DataType -> [Prop] -> Either String ()
+makeProof prop step over (DataType name datatype) rules = proof
     where
         prop' = listOfProp prop -- XXX
         rules' = map listOfProp rules -- XXX
         (newlemma, _, laststep, static) = mapFirstStep prop' step over datatype
         -- XXX: get rid of makeSteps
-        proof = makeSteps (rules' ++ newlemma) (map (\x -> transformVartoConstList x static elem) step) (transformVartoConstList laststep static elem)
+        proof = makeSteps (rules' ++ newlemma) (map (\x -> transformVartoConstList x static elem) step) 
+            (transformVartoConstList laststep static elem)
 
 validEquations :: [Prop] -> [Cyp] -> Either String ()
 validEquations _ [] = Left "Empty equation sequence"
@@ -214,7 +228,7 @@ printProp :: Prop -> String
 printProp (Prop l r) = printInfo l ++ " = " ++ printInfo r
 
 printInfo :: Cyp -> String
-printInfo (Application cypCurry cyp) = "(" ++ (printInfo cypCurry) ++ " " ++ (printInfo cyp) ++ ")"
+printInfo (Application cypCurry cyp) = "((" ++ (printInfo cypCurry) ++ ") " ++ (printInfo cyp) ++ ")"
 printInfo (Literal a) = translateLiteral a
 printInfo (Variable a) = "?" ++ a
 printInfo (Const a) = a
@@ -279,7 +293,8 @@ translate (Var v) cl vl f
     | f (translateQName v) vl = Variable (translateQName v)
 translate (Con c) cl vl f = Const (translateQName c)
 translate (Lit l) cl vl f = Literal l
-translate (InfixApp e1 (QConOp i) e2) cl vl f = Application (Application (Const (translateQName i)) (translate e1 cl vl f)) (translate e2 cl vl f)
+translate (InfixApp e1 (QConOp i) e2) cl vl f 
+    = Application (Application (Const (translateQName i)) (translate e1 cl vl f)) (translate e2 cl vl f)
 translate (InfixApp e1 (QVarOp i) e2) cl vl f
     | elem (translateQName i) cl =  Application (Application (Const (translateQName i)) (translate e1 cl vl f)) (translate e2 cl vl f)
     | f (translateQName i) vl =  Application (Application (Variable (translateQName i)) (translate e1 cl vl f)) (translate e2 cl vl f)
@@ -315,7 +330,6 @@ translateLiteral (PrimString c) = c
 true :: a -> b -> Bool
 true _ _ = True
 
-
 mapFirstStep :: [Cyp] -> [Cyp] -> String -> [(String, TCyp)] -> ([[Cyp]], [Cyp], Cyp, [Cyp])
 mapFirstStep prop firststeps over goals =
     ( map (\x -> map (\y -> createNewLemmata y over x) prop) (concat fmg)
@@ -327,7 +341,8 @@ mapFirstStep prop firststeps over goals =
         lastStep = parseLastStep (head $ prop) (head $ firststeps) over (last $ prop)
         (fmg, _ , tmg) = unzip3 mapGoals
             where
-                mapGoals = concatMap (\z -> map (\(y,x) -> goalLookup x z over (y,x)) goals) (parseFirstStep (head $ prop) (head $ firststeps) over)
+                mapGoals = concatMap (\z -> map (\(y,x) -> goalLookup x z over (y,x)) goals) 
+                    (parseFirstStep (head $ prop) (head $ firststeps) over)
 
 parseFirstStep :: Cyp -> Cyp -> String -> [Cyp]
 parseFirstStep (Variable n) m over
@@ -335,7 +350,8 @@ parseFirstStep (Variable n) m over
     | otherwise = []
 parseFirstStep (Literal l) _ _ = []
 parseFirstStep (Const c) _ _  = []
-parseFirstStep (Application cypCurry cyp) (Application cypthesisCurry cypthesis) over = (parseFirstStep cypCurry cypthesisCurry over) ++ (parseFirstStep cyp cypthesis over)
+parseFirstStep (Application cypCurry cyp) (Application cypthesisCurry cypthesis) over 
+    = (parseFirstStep cypCurry cypthesisCurry over) ++ (parseFirstStep cyp cypthesis over)
 parseFirstStep _ _ _ = []
 
 goalLookup :: TCyp -> Cyp -> String -> (String, TCyp) -> ([Cyp], [(String, TCyp)], [Cyp])
@@ -358,7 +374,8 @@ parseLastStep (Variable n) m over last
     | otherwise = []
 parseLastStep (Literal l) _ _ _ = []
 parseLastStep (Const c) _ _ _ = []
-parseLastStep (Application cypCurry cyp) (Application cypthesisCurry cypthesis) over last = (parseLastStep cypCurry cypthesisCurry over last) ++ (parseLastStep cyp cypthesis over last)
+parseLastStep (Application cypCurry cyp) (Application cypthesisCurry cypthesis) over last 
+    = (parseLastStep cypCurry cypthesisCurry over last) ++ (parseLastStep cyp cypthesis over last)
 parseLastStep _ _ _ _ = []
 
 
@@ -388,13 +405,14 @@ transformVartoConstList :: Cyp -> [Cyp] -> (Cyp -> [Cyp] -> Bool) -> Cyp
 transformVartoConstList (Variable v) list f | f (Variable v) list = Const v
                                             | otherwise = Variable v
 transformVartoConstList (Const v) _ _ = Const v
-transformVartoConstList (Application cypCurry cyp) list f = Application (transformVartoConstList cypCurry list f) (transformVartoConstList cyp list f)
+transformVartoConstList (Application cypCurry cyp) list f 
+    = Application (transformVartoConstList cypCurry list f) (transformVartoConstList cyp list f)
 transformVartoConstList (Literal a) _ _ = Literal a
 
-readDataType :: [ParseTree] -> [(String, TCyp)]
-readDataType pr = getGoals (tail $ head $ (innerParseDataTypes (tin pr))) (head $ head $ (innerParseDataTypes (tin pr)))
+readDataType :: [ParseTree] -> [DataType]
+readDataType pr = map (\x -> DataType (getConstructorName $ head $ x) (getGoals (tail $ x) (head $ x))) (innerParse pr)
 	where
-		tin pr = trim $ inner pr
+		innerParse pr = innerParseDataTypes $ trim $ inner pr
 			where
 				inner ((DataDecl p):pr) = p:(inner pr)
 				inner (x:pr) = inner pr
@@ -419,7 +437,10 @@ readSym pr = innerParseSyms (tin pr)
 				inner _ = []
 
 readFunc :: [ParseTree] -> [Cyp] -> ([[Cyp]], [String])
-readFunc pr sym = (parseFunc (tin pr) (innerParseLists (tin pr)) (nub $ globalConstList [] sym), nub $ globalConstList (innerParseLists (tin pr)) sym)
+readFunc pr sym = (
+        parseFunc (tin pr) (innerParseLists (tin pr)) (nub $ globalConstList [] sym), 
+        nub $ globalConstList (innerParseLists (tin pr)) sym
+    )
 	where
 		tin pr = trim $ inner pr
 			where
@@ -427,7 +448,7 @@ readFunc pr sym = (parseFunc (tin pr) (innerParseLists (tin pr)) (nub $ globalCo
 			inner (x:pr) = inner pr
 			inner _ = []
 			
-readLemmas :: [ParseTree] -> [String] -> [(String, TCyp)] -> [Lemma]
+readLemmas :: [ParseTree] -> [String] -> [DataType] -> [Lemma]
 readLemmas pr global dt = mapMaybe readLemma pr
     where
         readLemma (ParseLemma prop proof) = Just (Lemma prop' proof')
@@ -436,12 +457,15 @@ readLemmas pr global dt = mapMaybe readLemma pr
                 proof' = readProof proof
         readLemma _ = Nothing
 
-        readProof (ParseInduction over cases) = Induction over' cases'
+        readProof (ParseInduction datatype over cases) = Induction datatype over' cases'
             where
                 over' = c
                     where
                         (Variable c) = parseOver $ over
-                cases' = map (readCase cases) dt
+                cases' = map (readCase cases) ({-}racePrettyA-} sdt)
+                    where
+                        (Right (DataType _ sdt)) = (selectDataType dt datatype)
+
         readProof (ParseEquation eqns) = Equation $ parseCyps eqns global
 
         -- XXX do not silently drop invalid cases!
@@ -462,7 +486,8 @@ parseFunc r l g = zipWith (\a b -> [a, b]) (innerParseFunc r g l head) (innerPar
 
 innerParseFunc :: [[Char]] -> [String] -> [(ConstList, VariableList)] -> ([[Char]] -> String) -> [Cyp]
 innerParseFunc [] _ _ _ = []
-innerParseFunc (x:xs) g (v:vs) f = (parseDef (f (splitStringAt "=" x [])) (g ++ getConstList v) (getVariableList v)):(innerParseFunc xs g vs f)
+innerParseFunc (x:xs) g (v:vs) f 
+    = (parseDef (f (splitStringAt "=" x [])) (g ++ getConstList v) (getVariableList v)):(innerParseFunc xs g vs f)
   where
     parseDef x g v = translate (transform $ parseExpWithMode baseParseMode x) g v elem
 
@@ -641,14 +666,16 @@ equationProofParser = do
     return $ ParseEquation eqns
 
 inductionProofParser :: Parsec [Char] () ParseProof
-inductionProofParser = 
+inductionProofParser =
     do  keyword "Proof by induction on"
+        datatype <- many (noneOf " \t")
+        manySpacesOrComment
         over <- toEol
         manySpacesOrComment
         cases <- many1 caseParser
         manySpacesOrComment
         keywordQED
-        return (ParseInduction over cases)
+        return (ParseInduction datatype over cases)
 
 lemmaParser :: Parsec [Char] () ParseTree
 lemmaParser =
