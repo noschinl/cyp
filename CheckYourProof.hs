@@ -122,11 +122,11 @@ checkProof :: [Prop] -> Lemma -> [DataType] -> Either String ()
 checkProof axs (Lemma prop (Equation eqns)) _ = validEquationProof axs eqns prop
 checkProof axs (Lemma prop (Induction datatype over cases)) dt =
     traverse_ (\x -> check x) cases
-        where 
-        	(Right sdt) = (selectDataType dt datatype) --XXX Error Message falls Typ nicht existiert
-        	check cas = case (makeProof prop (snd cas) over sdt axs) of
-        		Right x -> Right x
-        		Left x -> Left $ "Error in case '" ++ (fst cas) ++ "' " ++ x
+        where
+            (Right sdt) = (selectDataType dt datatype) --XXX Error Message falls Typ nicht existiert
+            check cas = case (makeProof prop (snd cas) over sdt axs) of
+                Right x -> Right x
+                Left x -> Left $ "Error in case '" ++ (fst cas) ++ "' " ++ x
 
 selectDataType :: [DataType] -> String -> Either String DataType
 selectDataType ((DataType d m):dt) name 
