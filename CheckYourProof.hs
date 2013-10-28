@@ -121,13 +121,14 @@ checkProofs axs (l@(Lemma prop _) : ls) dt = checkProof axs l dt  >> checkProofs
 checkProof :: [Prop] -> Lemma -> [DataType] -> Either String ()
 checkProof axs (Lemma prop (Equation eqns)) _ = validEquationProof axs eqns prop
 checkProof axs (Lemma prop (Induction datatype over cases)) dt =
-    traverse_ (\x -> check x) cases
-        where
-            (Right sdt) = (selectDataType dt datatype) --XXX Error Message falls Typ nicht existiert
-            check cas = case (makeProof prop (snd cas) over sdt axs) of
-                Right x -> Right x
-                Left x -> Left $ "Error in case '" ++ (fst cas) ++ "' " ++ x
+    case find (\(DataType d _) -> d == datatype) dt of
+        Just sdt -> traverse_ (check sdt) cases
+        Nothing -> Left $ "Datatype " ++ datatype ++ "not found"
+    where check sdt cas = case makeProof prop (snd cas) over sdt axs of
+            Right x -> Right x
+            Left x -> Left $ "Error in case '" ++ (fst cas) ++ "' " ++ x
 
+-- XXX get rid of this function!
 selectDataType :: [DataType] -> String -> Either String DataType
 selectDataType ((DataType d m):dt) name 
     | d == name = Right $ (DataType d m)
