@@ -1,14 +1,15 @@
 module CheckYourProof where
 import Data.Char
+import Control.Applicative ((<$>), (<*>))
 import Control.Monad
 import Data.List
 import Data.Maybe
 import Data.Foldable (traverse_)
-import Text.Parsec
-import Text.Parsec.Combinator
-import Text.Parsec.Prim
-import Text.Parsec.Char
-import Text.Parsec.String
+import Text.Parsec as Parsec
+import Text.Parsec.Combinator as Parsec
+import Text.Parsec.Prim as Parsec
+import Text.Parsec.Char as Parsec
+import Text.Parsec.String as Parsec
 import Language.Haskell.Exts.Parser 
 import Language.Haskell.Exts.Fixity
 import Language.Haskell.Exts.Extension
@@ -74,6 +75,12 @@ data ParseProof
 
 type ParseEquations = [String]
 
+data Env = Env
+    { datatypes :: [DataType]
+    , axioms :: [Prop]
+    , constants :: [String]
+    }
+
 data DataType = DataType String [(String, TCyp)] -- name cases
     deriving (Show)
 
@@ -105,13 +112,24 @@ tracePrettyF :: Show b => (a -> b) -> a -> a
 tracePrettyF f x = tracePretty (f x) x
 
 proof masterFile studentFile = do
-    parseresult <- parsing masterFile studentFile
+    mContent <- readFile masterFile
+    sContent <- readFile studentFile
+    let env = showLeft $ mkEnv <$> Parsec.parse masterParser masterFile mContent
+    let sResult = showLeft $ Parsec.parse studentParser studentFile sContent
+    return $ join $ liftM2 process env sResult
+  where
+    showLeft (Left x) = Left (show x)
+    showLeft (Right x) = Right x
 
-    let datatype = {-tracePretty parseresult $ tracePrettyA $-} readDataType parseresult
-    let (func, globalConstList) = readFunc parseresult (varToConst $ readSym parseresult)
-    let lemmas = readLemmas parseresult globalConstList datatype -- lemmas -change name?
-    
-    return $ checkProofs ((map (\[x,y] -> Prop x y) func) ++ (readAxiom parseresult globalConstList)) lemmas datatype
+    mkEnv :: [ParseTree] -> Env
+    mkEnv mResult = Env { datatypes = readDataType mResult , axioms = fundefs ++ axioms , constants = consts }
+      where
+        (fundefs, consts) = readFunc mResult (varToConst $ readSym mResult)
+        axioms = readAxiom mResult consts
+
+    process :: Env -> [ParseTree] -> Either String [Prop]
+    process env sResult = checkProofs (axioms env) lemmas (datatypes env)
+      where lemmas = readLemmas env sResult
 
 checkProofs :: [Prop] -> [Lemma] -> [DataType] -> Either String [Prop]
 checkProofs axs [] dt  = Right axs
@@ -442,21 +460,25 @@ readSym pr = innerParseSyms (tin pr)
 				inner (x:pr) = inner pr
 				inner _ = []
 
-readFunc :: [ParseTree] -> [Cyp] -> ([[Cyp]], [String])
+readFunc :: [ParseTree] -> [Cyp] -> ([Prop], [String])
 readFunc pr sym = (
-        parseFunc (tin pr) (innerParseLists (tin pr)) (nub $ globalConstList [] sym), 
-        nub $ globalConstList (innerParseLists (tin pr)) sym
+        map (\[x,y] -> Prop x y) $ parseFunc pr' (innerParseLists pr') (nub $ globalConstList [] sym),
+        nub $ globalConstList (innerParseLists pr') sym
     )
-	where
-		tin pr = trim $ inner pr
-			where
-			inner ((FunDef p):pr) = p:(inner pr)
-			inner (x:pr) = inner pr
-			inner _ = []
-			
-readLemmas :: [ParseTree] -> [String] -> [DataType] -> [Lemma]
-readLemmas pr global dt = mapMaybe readLemma pr
     where
+        pr' = tin . removeEmptyFun $ pr
+        tin pr = trim $ inner pr
+            where
+            inner ((FunDef p):pr) = p:(inner pr)
+            inner (x:pr) = inner pr
+            inner _ = []
+
+readLemmas :: Env -> [ParseTree] -> [Lemma]
+readLemmas env pr = mapMaybe readLemma pr
+    where
+        global = constants env
+        dt = datatypes env
+
         readLemma (ParseLemma prop proof) = Just (Lemma prop' proof')
             where
                 prop' = innerParseCyp (trimh prop) global
@@ -572,36 +594,12 @@ replace old new (x:xs)
 	| isPrefixOf old (x:xs) = new ++ drop (length old) (x:xs)
 	| otherwise = x : replace old new xs
 
-parsing :: String -> String -> IO [ParseTree]
-parsing masterFile studentFile =
-	do
-		masterContent <- readFile masterFile
-		studentContent <- readFile studentFile
-		result <- returnParsing (parseMaster masterContent) (parseStudent studentContent)
-		return $ removeEmptyFun result
-		
 removeEmptyFun :: [ParseTree] -> [ParseTree]
 removeEmptyFun ((FunDef x):xs)
 	| length (splitStringAt "=" x []) > 0 = (FunDef x) : removeEmptyFun xs
 	| otherwise = removeEmptyFun xs
 removeEmptyFun (x:xs) = x:removeEmptyFun xs
 removeEmptyFun [] = []
-	
-returnParsing :: (Show a, Show b) => Either a [c] -> Either b [c] -> IO [c]	
-returnParsing (Left a) _ = 
-    do
-        putStr $ show a
-        return []
-returnParsing _  (Left a) = 
-    do
-        putStr $ show a
-        return []
-returnParsing (Right a) (Right b) = 
-    do
-        return (a++b)
-
-parseMaster input = Text.Parsec.Prim.parse masterFile "(master)" input
-parseStudent input = Text.Parsec.Prim.parse studentParser "(student)" input
 
 eol =   try (string "\n\r")
     <|> try (string "\r\n")
@@ -623,8 +621,8 @@ longcommentParser =
 
 commentParsers = commentParser <|> longcommentParser <?> "comment"
 
-masterFile :: Parsec [Char] () [ParseTree]
-masterFile = 
+masterParser :: Parsec [Char] () [ParseTree]
+masterParser =
     do result <- many masterParsers
        eof
        return result
