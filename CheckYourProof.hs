@@ -3,6 +3,7 @@ import Data.Char
 import Control.Monad
 import Data.List
 import Data.Maybe
+import Data.Foldable (traverse_)
 import Text.Parsec
 import Text.Parsec.Combinator
 import Text.Parsec.Prim
@@ -11,7 +12,6 @@ import Text.Parsec.String
 import Language.Haskell.Exts.Parser 
 import Language.Haskell.Exts.Fixity
 import Language.Haskell.Exts.Extension
-import Data.Foldable (traverse_)
 import Language.Haskell.Exts.Syntax (Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..))
 import Debug.Trace
 import Text.Show.Pretty (ppShow)
