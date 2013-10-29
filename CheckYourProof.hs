@@ -460,6 +460,7 @@ readSym pr = innerParseSyms (tin pr)
 				inner (x:pr) = inner pr
 				inner _ = []
 
+-- XXX: readFunc should probably use parseDecl!
 readFunc :: [ParseTree] -> [Cyp] -> ([Prop], [String])
 readFunc pr sym = (
         map (\[x,y] -> Prop x y) $ parseFunc pr' (innerParseLists pr') (nub $ globalConstList [] sym),
