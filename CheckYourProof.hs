@@ -115,7 +115,9 @@ proof masterFile studentFile = do
     mContent <- readFile masterFile
     sContent <- readFile studentFile
     let env = showLeft $ mkEnv <$> Parsec.parse masterParser masterFile mContent
-    let sResult = showLeft $ Parsec.parse studentParser studentFile sContent
+    let sResult = do
+        e <- env
+        showLeft $ Parsec.runParser studentParser e studentFile sContent
     return $ join $ liftM2 process env sResult
   where
     showLeft (Left x) = Left (show x)
@@ -662,7 +664,7 @@ funParser =
         eol
         return (FunDef result)
 
-equationProofParser :: Parsec [Char] () ParseProof
+equationProofParser :: Parsec [Char] Env ParseProof
 equationProofParser = do
     keyword "Proof"
     eqns <- equationsParser
@@ -670,7 +672,7 @@ equationProofParser = do
     keywordQED
     return $ ParseEquation eqns
 
-inductionProofParser :: Parsec [Char] () ParseProof
+inductionProofParser :: Parsec [Char] Env ParseProof
 inductionProofParser =
     do  keyword "Proof by induction on"
         datatype <- many (noneOf " \t")
@@ -682,7 +684,7 @@ inductionProofParser =
         keywordQED
         return (ParseInduction datatype over cases)
 
-lemmaParser :: Parsec [Char] () ParseTree
+lemmaParser :: Parsec [Char] Env ParseTree
 lemmaParser =
     do  keyword "Lemma:"
         proposition <- many (noneOf "\r\n")
@@ -692,7 +694,7 @@ lemmaParser =
         manySpacesOrComment
         return (ParseLemma proposition proof)
 
-studentParser ::  Parsec [Char] () [ParseTree]
+studentParser ::  Parsec [Char] Env [ParseTree]
 studentParser =
     do  lemmas <- many1 lemmaParser
         eof
@@ -714,7 +716,7 @@ toEol = do
     eol
     return res
 
-equationsParser :: Parsec [Char] () ParseEquations
+equationsParser :: Parsec [Char] Env ParseEquations
 equationsParser = do
     eq1 <- equations'
     eq2 <- option [] (try equations')
@@ -726,7 +728,7 @@ equationsParser = do
         lines <- many1 (try (manySpacesOrComment >> string "=" >> lineSpaces >> toEol))
         return (line : lines)
 
-caseParser :: Parsec [Char] () (String, ParseEquations)
+caseParser :: Parsec [Char] Env (String, ParseEquations)
 caseParser = do
     keywordCase
     manySpacesOrComment
@@ -736,6 +738,7 @@ caseParser = do
     manySpacesOrComment
     return (cons, eqns)
 
+manySpacesOrComment :: Parsec [Char] u ()
 manySpacesOrComment =
     do
         many space
