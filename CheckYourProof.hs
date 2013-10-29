@@ -608,13 +608,13 @@ eol =   try (string "\n\r")
     <|> string "\r"
     <?> "end of line"
 
-commentParser :: Parsec [Char] () ()
+commentParser :: Parsec [Char] u ()
 commentParser =
     do  string "--" 
         result <- many (noneOf "\r\n")
         eol
         return ()
-longcommentParser :: Parsec [Char] () ()
+longcommentParser :: Parsec [Char] u ()
 longcommentParser =
     do  string "{-"
         result <- manyTill anyChar (try (string "-}"))
@@ -700,7 +700,7 @@ studentParser =
 
 lineSpaces = skipMany (oneOf " \t") <?> "horizontal white space"
 
-keyword :: String -> Parsec [Char] () ()
+keyword :: String -> Parsec [Char] u ()
 keyword kw = try $ do
     string kw
     notFollowedBy alphaNum
