@@ -739,12 +739,7 @@ caseParser = do
     return (cons, eqns)
 
 manySpacesOrComment :: Parsec [Char] u ()
-manySpacesOrComment =
-    do
-        many space
-        optionMaybe (many commentParsers)
-        many space
-        return ()
+manySpacesOrComment = skipMany $ (space >> return ()) <|> commentParsers
 
 -- Parse Mode with Fixities
 baseParseMode = defaultParseMode { fixities = Just baseFixities }
