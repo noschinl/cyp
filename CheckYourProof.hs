@@ -742,15 +742,6 @@ manySpacesOrComment =
         optionMaybe (many commentParsers)
         many space
         return ()
-        
-        
--- Parse Mode with Fixities
 
-baseParseMode :: ParseMode
-baseParseMode = ParseMode {
-        parseFilename = "<unknown>.hs",
-        extensions = [],
-        ignoreLanguagePragmas = False,
-        ignoreLinePragmas = True,
-        fixities = Just baseFixities
-}
+-- Parse Mode with Fixities
+baseParseMode = defaultParseMode { fixities = Just baseFixities }
