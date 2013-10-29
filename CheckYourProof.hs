@@ -5,6 +5,7 @@ import Control.Monad
 import Data.List
 import Data.Maybe
 import Data.Foldable (traverse_)
+import Data.Traversable (traverse)
 import Text.Parsec as Parsec
 import Text.Parsec.Combinator as Parsec
 import Text.Parsec.Prim as Parsec
@@ -60,17 +61,18 @@ Check Your Proof (CYP)
 type ConstList = [String]
 type VariableList = [String]
 
-data ParseTree
+data ParseDeclTree
     = DataDecl String
     | SymDecl String -- Symbol (, Arity)
     | Axiom String
     | FunDef String
-    | ParseLemma String ParseProof -- Proposition, Proof
     deriving Show
 
+data ParseLemma = ParseLemma Prop ParseProof -- Proposition, Proof
+
 data ParseProof
-    = ParseInduction String String [(String, ParseEquations)] -- DataTyp, Over, Cases
-    | ParseEquation ParseEquations
+    = ParseInduction String String [(String, [Cyp])] -- DataTyp, Over, Cases
+    | ParseEquation [Cyp]
     deriving Show
 
 type ParseEquations = [String]
@@ -88,7 +90,7 @@ data Prop = Prop Cyp Cyp
     deriving (Eq, Show) -- lhs, rhs
 
 data Proof
-    = Induction String String [(String, [Cyp])] -- typ ,ind var, ...
+    = Induction DataType String [(String, [Cyp])] -- typ ,ind var, ...
     | Equation [Cyp]
     deriving (Show)
 
@@ -115,45 +117,64 @@ proof masterFile studentFile = do
     mContent <- readFile masterFile
     sContent <- readFile studentFile
     let env = showLeft $ mkEnv <$> Parsec.parse masterParser masterFile mContent
-    let sResult = do
+    let lemmas = do
         e <- env
         showLeft $ Parsec.runParser studentParser e studentFile sContent
-    return $ join $ liftM2 process env sResult
+    return $ join $ liftM2 process env lemmas
   where
     showLeft (Left x) = Left (show x)
     showLeft (Right x) = Right x
 
-    mkEnv :: [ParseTree] -> Env
     mkEnv mResult = Env { datatypes = readDataType mResult , axioms = fundefs ++ axioms , constants = consts }
       where
         (fundefs, consts) = readFunc mResult (varToConst $ readSym mResult)
         axioms = readAxiom mResult consts
 
-    process :: Env -> [ParseTree] -> Either String [Prop]
-    process env sResult = checkProofs (axioms env) lemmas (datatypes env)
-      where lemmas = readLemmas env sResult
+    process env lemmas = checkProofs env lemmas
 
-checkProofs :: [Prop] -> [Lemma] -> [DataType] -> Either String [Prop]
-checkProofs axs [] dt  = Right axs
-checkProofs axs (l@(Lemma prop _) : ls) dt = checkProof axs l dt  >> checkProofs (prop : axs) ls dt
+checkProofs :: Env-> [ParseLemma] -> Either String [Prop]
+checkProofs env []  = Right $ axioms env
+checkProofs env (l@(ParseLemma prop _) : ls) = do
+    checkProof env l
+    checkProofs (env { axioms = prop : axioms env}) ls
 
+checkProof :: Env -> ParseLemma -> Either String ()
+checkProof env (ParseLemma prop (ParseEquation eqns)) = validEquationProof (axioms env) eqns prop
+checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
+    dt <- validateDatatype env dtRaw
+    over <- validateOver env overRaw
+    cases <- validateCases env dt casesRaw
+    traverse_ (check dt over) cases
+  where
+    check sdt over cas = case makeProof prop (snd cas) over sdt (axioms env) of
+        Right x -> Right x
+        Left x -> Left $ "Error in case '" ++ (fst cas) ++ "' " ++ x
 
-checkProof :: [Prop] -> Lemma -> [DataType] -> Either String ()
-checkProof axs (Lemma prop (Equation eqns)) _ = validEquationProof axs eqns prop
-checkProof axs (Lemma prop (Induction datatype over cases)) dt =
-    case find (\(DataType d _) -> d == datatype) dt of
-        Just sdt -> traverse_ (check sdt) cases
-        Nothing -> Left $ "Datatype " ++ datatype ++ "not found"
-    where check sdt cas = case makeProof prop (snd cas) over sdt axs of
-            Right x -> Right x
-            Left x -> Left $ "Error in case '" ++ (fst cas) ++ "' " ++ x
+    validateDatatype env name = case find (\dt -> getDtName dt == name) (datatypes env) of
+        Nothing -> Left $  "Invalid datatype '" ++ name ++ "'. Expected one of "
+            ++ show (map getDtName $ datatypes env)
+        Just dt -> Right dt
 
--- XXX get rid of this function!
-selectDataType :: [DataType] -> String -> Either String DataType
-selectDataType ((DataType d m):dt) name 
-    | d == name = Right $ (DataType d m)
-    | otherwise = selectDataType dt name
-selectDataType [] _ = Left $ "False name for DataType"
+    validateOver env text =
+        case parseOver text of
+            (Variable c) -> return c
+            _ -> Left $ "Not an induction variable '" ++ text ++ "'"
+
+    validateCases env dt cases = do
+        case missingCase of
+            Nothing -> return cases
+            Just (name, _) -> Left $ "Missing case '" ++ name ++ "'"
+        case invalidCase of
+            Nothing -> return cases
+            Just name -> Left $ "Invalid case '" ++ name ++ "'"
+      where
+        conss = getDtConss dt
+        caseNames = map fst cases
+        missingCase = find (\(name, _) -> name `notElem` caseNames) conss
+        invalidCase = find (\name -> all (\cons -> fst cons /= name ) conss) caseNames
+
+    getDtConss (DataType _ conss) = conss
+    getDtName (DataType n _) = n
 
 
 listOfProp :: Prop -> [Cyp]
@@ -435,7 +456,7 @@ transformVartoConstList (Application cypCurry cyp) list f
     = Application (transformVartoConstList cypCurry list f) (transformVartoConstList cyp list f)
 transformVartoConstList (Literal a) _ _ = Literal a
 
-readDataType :: [ParseTree] -> [DataType]
+readDataType :: [ParseDeclTree] -> [DataType]
 readDataType pr = map (\x -> DataType (getConstructorName $ head $ x) (getGoals (tail $ x) (head $ x))) (innerParse pr)
 	where
 		innerParse pr = innerParseDataTypes $ trim $ inner pr
@@ -444,7 +465,7 @@ readDataType pr = map (\x -> DataType (getConstructorName $ head $ x) (getGoals 
 				inner (x:pr) = inner pr
 				inner _ = []
 
-readAxiom :: [ParseTree] -> [String] -> [Prop]
+readAxiom :: [ParseDeclTree] -> [String] -> [Prop]
 readAxiom pr global = innerParseCyps (tin pr) global
 	where
 		tin pr = trim $ inner pr
@@ -453,7 +474,7 @@ readAxiom pr global = innerParseCyps (tin pr) global
 				inner (x:pr) = inner pr
 				inner _ = []
 
-readSym :: [ParseTree] -> [[Cyp]]
+readSym :: [ParseDeclTree] -> [[Cyp]]
 readSym pr = innerParseSyms (tin pr)
 	where
 		tin pr = trim $ inner pr
@@ -463,7 +484,7 @@ readSym pr = innerParseSyms (tin pr)
 				inner _ = []
 
 -- XXX: readFunc should probably use parseDecl!
-readFunc :: [ParseTree] -> [Cyp] -> ([Prop], [String])
+readFunc :: [ParseDeclTree] -> [Cyp] -> ([Prop], [String])
 readFunc pr sym = (
         map (\[x,y] -> Prop x y) $ parseFunc pr' (innerParseLists pr') (nub $ globalConstList [] sym),
         nub $ globalConstList (innerParseLists pr') sym
@@ -475,37 +496,6 @@ readFunc pr sym = (
             inner ((FunDef p):pr) = p:(inner pr)
             inner (x:pr) = inner pr
             inner _ = []
-
-readLemmas :: Env -> [ParseTree] -> [Lemma]
-readLemmas env pr = mapMaybe readLemma pr
-    where
-        global = constants env
-        dt = datatypes env
-
-        readLemma (ParseLemma prop proof) = Just (Lemma prop' proof')
-            where
-                prop' = innerParseCyp (trimh prop) global
-                proof' = readProof proof
-        readLemma _ = Nothing
-
-        readProof (ParseInduction datatype over cases) = Induction datatype over' cases'
-            where
-                over' = c
-                    where
-                        (Variable c) = parseOver $ over
-                cases' = map (readCase cases) ({-}racePrettyA-} sdt)
-                    where
-                        (Right (DataType _ sdt)) = (selectDataType dt datatype)
-
-        readProof (ParseEquation eqns) = Equation $ parseCyps eqns global
-
-        -- XXX do not silently drop invalid cases!
-        readCase cases dtcons = (fst cas, parseCyps (snd cas) global)
-            where
-                dtcons' = trimh $ fst dtcons
-                cas = case filter (\(name,eqns) -> trimh name == dtcons') cases of
-                    [] -> undefined -- XXX error message
-                    (x:_) -> x
 
 globalConstList :: [(ConstList, VariableList)] -> [Cyp] -> [String]
 globalConstList (x:xs) ys = getConstList x ++ (globalConstList xs ys)
@@ -531,21 +521,38 @@ innerParseLists = map innerParseList
 parseLists :: String -> (ConstList, VariableList)
 parseLists x = strip_comb $ transform $ parseExpWithMode baseParseMode  x
 
+-- XXX: Should take env?
 parseOver :: String -> Cyp
 parseOver x = translate (transform $ parseExpWithMode baseParseMode x) [] [] true
 
-innerParseCyp :: [Char] -> [String] -> Prop
-innerParseCyp pr global = Prop lhs rhs
+unsafeInnerParseCyp :: [Char] -> [String] -> Prop
+unsafeInnerParseCyp pr global = Prop lhs rhs
     where [lhs, rhs] = parseCyps (splitStringAt "=" pr []) global
     
 innerParseCyps :: [String] -> [String] -> [Prop]
-innerParseCyps prs global = map (\pr -> innerParseCyp pr global) prs
+innerParseCyps prs global = map (\pr -> unsafeInnerParseCyp pr global) prs
 
-parseCyp :: String -> ConstList -> Cyp
-parseCyp x global = translate (transform $ parseExpWithMode baseParseMode x) global [] true
+iparseCyp :: Env -> String -> Either String Cyp
+iparseCyp env x = case parseExpWithMode baseParseMode x of
+    ParseOk p -> Right $ translate p (constants env) [] true
+    f@(ParseFailed _ _) -> Left $ show f
+
+iparseProp :: Env -> String -> Either String Prop
+iparseProp env  x= do
+    (textL, textR) <- eqs
+    lhs <- iparseCyp env textL
+    rhs <- iparseCyp env textR
+    return $ Prop lhs rhs
+  where
+    eqs = case break (=='=') x of
+        (_,[]) -> Left $ "Not a proposition '" ++ x ++ "'"
+        (l,r) -> Right (l, tail r)
+
+unsafeParseCyp :: String -> ConstList -> Cyp
+unsafeParseCyp x global = translate (transform $ parseExpWithMode baseParseMode x) global [] true
 
 parseCyps :: [String] -> ConstList -> [Cyp]
-parseCyps xs global = map (\x -> parseCyp x global) xs
+parseCyps xs global = map (\x -> unsafeParseCyp x global) xs
 
 innerParseSyms :: [String] -> [[Cyp]]
 innerParseSyms xs = map (innerParseSym) xs
@@ -597,12 +604,15 @@ replace old new (x:xs)
 	| isPrefixOf old (x:xs) = new ++ drop (length old) (x:xs)
 	| otherwise = x : replace old new xs
 
-removeEmptyFun :: [ParseTree] -> [ParseTree]
+removeEmptyFun :: [ParseDeclTree] -> [ParseDeclTree]
 removeEmptyFun ((FunDef x):xs)
 	| length (splitStringAt "=" x []) > 0 = (FunDef x) : removeEmptyFun xs
 	| otherwise = removeEmptyFun xs
 removeEmptyFun (x:xs) = x:removeEmptyFun xs
 removeEmptyFun [] = []
+
+toParsec :: (a -> String) -> Either a b -> Parsec c u b
+toParsec f = either (fail . f) return
 
 eol =   try (string "\n\r")
     <|> try (string "\r\n")
@@ -624,41 +634,41 @@ longcommentParser =
 
 commentParsers = commentParser <|> longcommentParser <?> "comment"
 
-masterParser :: Parsec [Char] () [ParseTree]
+masterParser :: Parsec [Char] () [ParseDeclTree]
 masterParser =
     do result <- many masterParsers
        eof
        return result
 
-masterParsers :: Parsec [Char] () ParseTree
+masterParsers :: Parsec [Char] () ParseDeclTree
 masterParsers =
     do many space
        optionMaybe (try commentParser <|> try longcommentParser)
        result <- (try dataParser <|> try axiomParser <|> try symParser <|> funParser)
        return result
 
-axiomParser :: Parsec [Char] () ParseTree
+axiomParser :: Parsec [Char] () ParseDeclTree
 axiomParser =
     do  keyword "lemma" 
         result <- many (noneOf "\r\n")
         eol
         return (Axiom result)
 
-dataParser :: Parsec [Char] () ParseTree
+dataParser :: Parsec [Char] () ParseDeclTree
 dataParser =
     do  keyword "data"
         result <- many (noneOf "\r\n" )
         eol
         return (DataDecl result)
 
-symParser :: Parsec [Char] () ParseTree
+symParser :: Parsec [Char] () ParseDeclTree
 symParser =
     do  keyword "declare_sym" 
         result <- many (noneOf "\r\n")
         eol
         return (SymDecl result)
 
-funParser :: Parsec [Char] () ParseTree
+funParser :: Parsec [Char] () ParseDeclTree
 funParser =
     do  result <- many (noneOf "\r\n")
         eol
@@ -675,6 +685,7 @@ equationProofParser = do
 inductionProofParser :: Parsec [Char] Env ParseProof
 inductionProofParser =
     do  keyword "Proof by induction on"
+        env <- getState
         datatype <- many (noneOf " \t")
         manySpacesOrComment
         over <- toEol
@@ -684,17 +695,23 @@ inductionProofParser =
         keywordQED
         return (ParseInduction datatype over cases)
 
-lemmaParser :: Parsec [Char] Env ParseTree
+propParser :: Parsec [Char] Env Prop
+propParser = do
+    text <- many (noneOf "\r\n")
+    env <- getState
+    toParsec (\err -> "Failed to parse expression: " ++ err) (iparseProp env text)
+
+lemmaParser :: Parsec [Char] Env ParseLemma
 lemmaParser =
     do  keyword "Lemma:"
-        proposition <- many (noneOf "\r\n")
+        prop <- propParser
         eol
         manySpacesOrComment
         proof <- inductionProofParser <|> equationProofParser
         manySpacesOrComment
-        return (ParseLemma proposition proof)
+        return $ ParseLemma prop proof
 
-studentParser ::  Parsec [Char] Env [ParseTree]
+studentParser ::  Parsec [Char] Env [ParseLemma]
 studentParser =
     do  lemmas <- many1 lemmaParser
         eof
@@ -716,7 +733,7 @@ toEol = do
     eol
     return res
 
-equationsParser :: Parsec [Char] Env ParseEquations
+equationsParser :: Parsec [Char] Env [Cyp]
 equationsParser = do
     eq1 <- equations'
     eq2 <- option [] (try equations')
@@ -726,17 +743,21 @@ equationsParser = do
         spaces
         line <- toEol
         lines <- many1 (try (manySpacesOrComment >> string "=" >> lineSpaces >> toEol))
-        return (line : lines)
+        env <- getState
+        let eqs = map (iparseCyp env) (line : lines)
+        toParsec fmt . sequence $ eqs
+    fmt err = "Failed to parse expression: " ++ err
 
-caseParser :: Parsec [Char] Env (String, ParseEquations)
+caseParser :: Parsec [Char] Env (String, [Cyp])
 caseParser = do
     keywordCase
     manySpacesOrComment
-    cons <- toEol
+    cons <- trimh <$> toEol
     manySpacesOrComment
     eqns <- equationsParser
     manySpacesOrComment
     return (cons, eqns)
+  where validCons (DataType _ conss) cons = any (\(name,_) -> name == cons) conss
 
 manySpacesOrComment :: Parsec [Char] u ()
 manySpacesOrComment = skipMany $ (space >> return ()) <|> commentParsers
