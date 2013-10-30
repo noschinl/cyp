@@ -14,6 +14,7 @@ import Text.Parsec.String as Parsec
 import Language.Haskell.Exts.Parser 
 import Language.Haskell.Exts.Fixity
 import Language.Haskell.Exts.Extension
+import qualified Language.Haskell.Exts.Syntax as Exts
 import Language.Haskell.Exts.Syntax (Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..), Assoc(..))
 import Debug.Trace
 import Text.Show.Pretty (ppShow)
@@ -100,6 +101,8 @@ data Lemma = Lemma Prop Proof -- Proposition (_ = _), Proof
 
 data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Literal
     deriving (Show, Eq)
+
+infixl 1 `Application`
 
 data TCyp = TApplication TCyp TCyp | TConst String | TNRec String | TRec
     deriving (Show, Eq)
@@ -336,22 +339,22 @@ getConstList (cons ,_) = cons
 getVariableList :: (ConstList, VariableList) -> VariableList
 getVariableList (_, var) = var
 
-translate :: Exp -> ConstList -> VariableList -> (String -> [String] -> Bool)-> Cyp
-translate (Var v) cl vl f
-    | elem (translateQName v) cl = Const (translateQName v)
-    | f (translateQName v) vl = Variable (translateQName v)
-translate (Con c) cl vl f = Const (translateQName c)
-translate (Lit l) cl vl f = Literal l
-translate (InfixApp e1 (QConOp i) e2) cl vl f 
-    = Application (Application (Const (translateQName i)) (translate e1 cl vl f)) (translate e2 cl vl f)
-translate (InfixApp e1 (QVarOp i) e2) cl vl f
-    | elem (translateQName i) cl =  Application (Application (Const (translateQName i)) (translate e1 cl vl f)) (translate e2 cl vl f)
-    | f (translateQName i) vl =  Application (Application (Variable (translateQName i)) (translate e1 cl vl f)) (translate e2 cl vl f)
-translate (App e1 e2)  cl vl f = Application (translate e1 cl vl f) (translate e2 cl vl f)
-translate (Paren e) cl vl f = translate e cl vl f
-translate (List l) cl vl f
-    | null(l) = Const ("[]")
-    | otherwise = Application (Application (Const (":")) (translate (head l) cl vl f)) (translate (List (tail l)) cl vl f)
+translate' :: (String -> Cyp) -> Exp -> Cyp
+translate' f (Var v) = f $ translateQName v
+translate' _ (Con c) = Const (translateQName c)
+translate' _ (Lit l) = Literal l
+translate' f (InfixApp e1 (QConOp i) e2) =
+    (Const $ translateQName i) `Application` translate' f e1 `Application` translate' f e2
+translate' f (InfixApp e1 (QVarOp i) e2) =
+    (f $ translateQName i) `Application` translate' f e1 `Application` translate' f e2
+translate' f (App e1 e2) = translate' f e1 `Application` translate' f e2
+translate' f (Paren e) = translate' f e
+translate' f (List l) = foldr (\e es -> Const ":" `Application` translate' f e `Application` es) (Const "[]") l
+
+translate e cs vs test = translate' f e
+  where
+    f s | elem s cs = Const s
+        | test s vs = Variable s
 
 translateQName :: QName -> String
 translateQName (Qual (ModuleName m) (Ident n)) = m ++ "." ++ n
@@ -484,6 +487,10 @@ readSym = sequence . mapMaybe parseSym
         exp <- iparseExp baseParseMode s
         return $ transformVartoConst $ translate exp [] [] true
     parseSym _ = Nothing
+
+-- XXX move
+listComb :: Cyp -> [Cyp] -> Cyp
+listComb = foldl Application
 
 -- XXX: readFunc should probably use parseDecl!
 readFunc :: [ParseDeclTree] -> [Cyp] -> ([Prop], [String])
