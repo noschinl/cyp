@@ -155,10 +155,11 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
             ++ show (map getDtName $ datatypes env)
         Just dt -> Right dt
 
-    validateOver env text =
-        case parseOver text of
-            (Variable c) -> return c
-            _ -> Left $ "Not an induction variable '" ++ text ++ "'"
+    validateOver env text = do
+        exp <- iparseExp baseParseMode text
+        case translate exp [] [] true of -- XXX: We should take the constant list into account?
+            Variable v -> return v
+            _ -> Left $ "Variable '" ++ text ++ "' is not a valid induction variable"
 
     validateCases env dt cases = do
         case missingCase of
@@ -503,10 +504,6 @@ innerParseList x = parseLists $ head (splitStringAt "=" x [])
 
 parseLists :: String -> (ConstList, VariableList)
 parseLists x = strip_comb $ transform $ parseExpWithMode baseParseMode  x
-
--- XXX: Should take env?
-parseOver :: String -> Cyp
-parseOver x = translate (transform $ parseExpWithMode baseParseMode x) [] [] true
 
 iparseExp :: ParseMode -> String -> Either String Exp
 iparseExp mode s = case parseExpWithMode mode s of
