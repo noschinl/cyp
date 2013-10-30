@@ -490,14 +490,14 @@ readFunc pr sym =
         symConsts = nub $ mapMaybe (\x -> case x of { Const y -> Just y; _ -> Nothing}) sym
 
 parseFunc :: [String] -> [(ConstList, VariableList)] -> [String] -> [Prop]
-parseFunc r l g = zipWith Prop (innerParseFunc r g l head) (innerParseFunc r g l last)
+parseFunc r l g = zipWith Prop (innerParseFuncs g head r l) (innerParseFuncs g last r l)
 
-innerParseFunc :: [String] -> [String] -> [(ConstList, VariableList)] -> ([String] -> String) -> [Cyp]
-innerParseFunc [] _ _ _ = []
-innerParseFunc (x:xs) g (v:vs) f 
-    = (parseDef (f (splitStringAt "=" x [])) (g ++ getConstList v) (getVariableList v)):(innerParseFunc xs g vs f)
-  where
-    parseDef x g v = translate (transform $ parseExpWithMode baseParseMode x) g v elem
+innerParseFunc :: [String] -> ([String] -> String) -> String -> (ConstList, VariableList) -> Cyp
+innerParseFunc consts f s v = parseDef (f $ splitStringAt "=" s []) (consts ++ getConstList v) (getVariableList v)
+  where parseDef s g v = translate (transform $ parseExpWithMode baseParseMode s) g v elem
+
+innerParseFuncs :: [String] -> ([String] -> String) -> [String] -> [(ConstList, VariableList)] -> [Cyp]
+innerParseFuncs consts f = zipWith $ innerParseFunc consts f
 
 innerParseList :: String -> (ConstList, VariableList)
 innerParseList x = parseLists $ head (splitStringAt "=" x [])
