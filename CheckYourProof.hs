@@ -102,10 +102,16 @@ data Lemma = Lemma Prop Proof -- Proposition (_ = _), Proof
 data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Literal
     deriving (Show, Eq)
 
-infixl 1 `Application`
-
 data TCyp = TApplication TCyp TCyp | TConst String | TNRec String | TRec
     deriving (Show, Eq)
+
+{- Cyp operations ---------------------------------------------------}
+
+mApp :: Monad m => m Cyp -> m Cyp -> m Cyp
+mApp = liftM2 Application
+
+infixl 1 `mApp`
+infixl 1 `Application`
 
 tracePretty :: Show a => a -> b -> b
 tracePretty = trace . ppShow
@@ -161,7 +167,7 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
 
     validateOver env text = do
         exp <- iparseExp baseParseMode text
-        case translate Variable exp of -- XXX: We should take the constant list into account?
+        case unsafeTranslate Variable exp of -- XXX: We should take the constant list into account?
             Variable v -> return v
             _ -> Left $ "Variable '" ++ text ++ "' is not a valid induction variable"
 
@@ -339,17 +345,29 @@ getConstList (cons ,_) = cons
 getVariableList :: (ConstList, VariableList) -> VariableList
 getVariableList (_, var) = var
 
-translate :: (String -> Cyp) -> Exp -> Cyp
+translate :: (String -> Either String Cyp) -> Exp -> Either String Cyp
 translate f (Var v) = f $ translateQName v
-translate _ (Con c) = Const (translateQName c)
-translate _ (Lit l) = Literal l
+translate _ (Con c) = Right $ Const $ translateQName c
+translate _ (Lit l) = Right $ Literal l
 translate f (InfixApp e1 (QConOp i) e2) =
-    (Const $ translateQName i) `Application` translate f e1 `Application` translate f e2
+    (Right $ Const $ translateQName i) `mApp` translate f e1 `mApp` translate f e2
 translate f (InfixApp e1 (QVarOp i) e2) =
-    (f $ translateQName i) `Application` translate f e1 `Application` translate f e2
-translate f (App e1 e2) = translate f e1 `Application` translate f e2
+    (f $ translateQName i) `mApp` translate f e1 `mApp` translate f e2
+translate f (App e1 e2) = translate f e1 `mApp` translate f e2
 translate f (Paren e) = translate f e
-translate f (List l) = foldr (\e es -> Const ":" `Application` translate f e `Application` es) (Const "[]") l
+translate f (List l) = foldr (\e es -> Right (Const ":") `mApp` translate f e `mApp` es) (Right $ Const "[]") l
+
+unsafeTranslate :: (String -> Cyp) -> Exp -> Cyp
+unsafeTranslate f (Var v) = f $ translateQName v
+unsafeTranslate _ (Con c) = Const (translateQName c)
+unsafeTranslate _ (Lit l) = Literal l
+unsafeTranslate f (InfixApp e1 (QConOp i) e2) =
+    (Const $ translateQName i) `Application` unsafeTranslate f e1 `Application` unsafeTranslate f e2
+unsafeTranslate f (InfixApp e1 (QVarOp i) e2) =
+    (f $ translateQName i) `Application` unsafeTranslate f e1 `Application` unsafeTranslate f e2
+unsafeTranslate f (App e1 e2) = unsafeTranslate f e1 `Application` unsafeTranslate f e2
+unsafeTranslate f (Paren e) = unsafeTranslate f e
+unsafeTranslate f (List l) = foldr (\e es -> Const ":" `Application` unsafeTranslate f e `Application` es) (Const "[]") l
 
 translateQName :: QName -> String
 translateQName (Qual (ModuleName m) (Ident n)) = m ++ "." ++ n
@@ -464,7 +482,7 @@ readDataType = sequence . mapMaybe parseDecl
     parseCons :: String -> Either String TCyp
     parseCons s = do
         exp <- iparseExp baseParseMode s
-        return $ translateToTyp $ translate Variable exp
+        return $ translateToTyp $ unsafeTranslate Variable exp
 
 
 readAxiom :: [String] -> [ParseDeclTree] -> Either String [Prop]
@@ -480,7 +498,7 @@ readSym = sequence . mapMaybe parseSym
   where
     parseSym (SymDecl s) = Just $ do
         exp <- iparseExp baseParseMode s
-        return $ transformVartoConst $ translate Variable exp
+        return $ transformVartoConst $ unsafeTranslate Variable exp
     parseSym _ = Nothing
 
 -- XXX move
@@ -504,7 +522,7 @@ readFunc pr sym =
         innerParseFunc :: [String] -> ([String] -> String) -> String -> (ConstList, VariableList) -> Cyp
         innerParseFunc consts f s v = parseDef (f $ splitStringAt "=" s []) (consts ++ getConstList v) (getVariableList v)
           where
-            parseDef s g v = translate (tv g v) (transform $ parseExpWithMode baseParseMode s)
+            parseDef s g v = unsafeTranslate (tv g v) (transform $ parseExpWithMode baseParseMode s)
             tv g v s | s `elem` g = Const s
                      | s `elem` v = Variable s
 
@@ -522,7 +540,7 @@ iparseExp mode s = case parseExpWithMode mode s of
 iparseCypWithMode :: ParseMode -> Env -> String -> Either String Cyp
 iparseCypWithMode mode env s = do
     p <- iparseExp mode s
-    return $ translate tv p
+    return $ unsafeTranslate tv p
   where tv s = if s `elem` constants env then Const s else Variable s
 
 iparseCyp :: Env -> String -> Either String Cyp
