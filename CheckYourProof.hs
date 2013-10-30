@@ -118,11 +118,11 @@ proof masterFile studentFile = do
     sContent <- readFile studentFile
     let env = do
         mResult <- showLeft $ Parsec.parse masterParser masterFile mContent
-        let dts = readDataType mResult
+        dts <- readDataType mResult
         syms <- readSym mResult
         let (fundefs, consts) = readFunc mResult syms
         axioms <- readAxiom consts mResult
-        return $ Env { datatypes = readDataType mResult , axioms = fundefs ++ axioms , constants = consts }
+        return $ Env { datatypes = dts, axioms = fundefs ++ axioms , constants = consts }
     let lemmas = do
         e <- env
         showLeft $ Parsec.runParser studentParser e studentFile sContent
@@ -455,18 +455,18 @@ transformVartoConstList (Application cypCurry cyp) list f
     = Application (transformVartoConstList cypCurry list f) (transformVartoConstList cyp list f)
 transformVartoConstList (Literal a) _ _ = Literal a
 
-readDataType :: [ParseDeclTree] -> [DataType]
-readDataType = mapMaybe parseDecl
+readDataType :: [ParseDeclTree] -> Either String [DataType]
+readDataType = sequence . mapMaybe parseDecl
   where
-    parseDecl (DataDecl s) = Just $ DataType (getConstructorName hd) (getGoals tl hd)
-      where (hd : tl) = innerParseDataType $ trimh $ s
+    parseDecl (DataDecl s) = Just $ do
+        (tycon : dacons) <- traverse parseCons $ splitStringAt "=|" (trimh s) [] -- XXX: trimh necessary?
+        return $ DataType (getConstructorName tycon) (getGoals dacons tycon)
     parseDecl _ = Nothing
 
-    innerParseDataType :: [Char] -> [TCyp]
-    innerParseDataType x = map parseDataType (splitStringAt "=|" x [])
-
-    parseDataType :: String -> TCyp
-    parseDataType s = translateToTyp $ translate (transform $ parseExpWithMode baseParseMode s) [] [] true
+    parseCons :: String -> Either String TCyp
+    parseCons s = do
+        exp <- iparseExp baseParseMode s
+        return $ translateToTyp $ translate exp [] [] true
 
 
 readAxiom :: [String] -> [ParseDeclTree] -> Either String [Prop]
