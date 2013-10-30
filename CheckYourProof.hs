@@ -481,7 +481,7 @@ readSym = mapMaybe parseSym
 -- XXX: readFunc should probably use parseDecl!
 readFunc :: [ParseDeclTree] -> [Cyp] -> ([Prop], [String])
 readFunc pr sym =
-        ( parseFunc pr' ipl symConsts
+        ( zipWith (parseFunc symConsts) pr' ipl
         , nub $ concatMap getConstList ipl ++ symConsts
         )
     where
@@ -489,15 +489,12 @@ readFunc pr sym =
         ipl = map innerParseList pr'
         symConsts = nub $ mapMaybe (\x -> case x of { Const y -> Just y; _ -> Nothing}) sym
 
-parseFunc :: [String] -> [(ConstList, VariableList)] -> [String] -> [Prop]
-parseFunc r l g = zipWith Prop (innerParseFuncs g head r l) (innerParseFuncs g last r l)
+parseFunc :: [String] -> String -> (ConstList, VariableList) -> Prop
+parseFunc g r l = Prop (innerParseFunc g head r l) (innerParseFunc g last r l)
 
 innerParseFunc :: [String] -> ([String] -> String) -> String -> (ConstList, VariableList) -> Cyp
 innerParseFunc consts f s v = parseDef (f $ splitStringAt "=" s []) (consts ++ getConstList v) (getVariableList v)
   where parseDef s g v = translate (transform $ parseExpWithMode baseParseMode s) g v elem
-
-innerParseFuncs :: [String] -> ([String] -> String) -> [String] -> [(ConstList, VariableList)] -> [Cyp]
-innerParseFuncs consts f = zipWith $ innerParseFunc consts f
 
 innerParseList :: String -> (ConstList, VariableList)
 innerParseList x = parseLists $ head (splitStringAt "=" x [])
