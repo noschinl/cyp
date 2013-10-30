@@ -531,7 +531,7 @@ iparseCyp = iparseCypWithMode baseParseMode
 iparseProp :: Env -> String -> Either String Prop
 iparseProp env x = do
     cyp <- iparseCypWithMode mode env' x
-    case tracePrettyA cyp of
+    case cyp of
 -- XXX: handle ".=." differently! -> Const; Exclude ".=." from inner terms ...
         Application (Application (Variable ".=.") lhs) rhs -> Right $ Prop lhs rhs
         _ -> Left $ "Term '" ++ x ++ "' is not a proposition"
