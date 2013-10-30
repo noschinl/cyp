@@ -650,7 +650,7 @@ dataParser =
 symParser :: Parsec [Char] () ParseDeclTree
 symParser =
     do  keyword "declare_sym" 
-        result <- many (noneOf "\r\n")
+        result <- trimh <$> many (noneOf "\r\n")
         eol
         return (SymDecl result)
 
