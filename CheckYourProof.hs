@@ -1,19 +1,14 @@
 module CheckYourProof where
 import Data.Char
-import Control.Applicative ((<$>), (<*>))
+import Control.Applicative ((<$>))
 import Control.Monad
 import Data.List
 import Data.Maybe
 import Data.Foldable (traverse_)
 import Data.Traversable (traverse)
 import Text.Parsec as Parsec
-import Text.Parsec.Combinator as Parsec
-import Text.Parsec.Prim as Parsec
-import Text.Parsec.Char as Parsec
-import Text.Parsec.String as Parsec
 import Language.Haskell.Exts.Parser 
 import Language.Haskell.Exts.Fixity
-import Language.Haskell.Exts.Extension
 import qualified Language.Haskell.Exts.Syntax as Exts
 import Language.Haskell.Exts.Syntax (Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..), Assoc(..))
 import Debug.Trace
