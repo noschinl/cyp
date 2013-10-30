@@ -14,7 +14,7 @@ import Text.Parsec.String as Parsec
 import Language.Haskell.Exts.Parser 
 import Language.Haskell.Exts.Fixity
 import Language.Haskell.Exts.Extension
-import Language.Haskell.Exts.Syntax (Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..))
+import Language.Haskell.Exts.Syntax (Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..), Assoc(..))
 import Debug.Trace
 import Text.Show.Pretty (ppShow)
 
@@ -532,21 +532,25 @@ unsafeInnerParseCyp pr global = Prop lhs rhs
 innerParseCyps :: [String] -> [String] -> [Prop]
 innerParseCyps prs global = map (\pr -> unsafeInnerParseCyp pr global) prs
 
-iparseCyp :: Env -> String -> Either String Cyp
-iparseCyp env x = case parseExpWithMode baseParseMode x of
+iparseCypWithMode :: ParseMode -> Env -> String -> Either String Cyp
+iparseCypWithMode mode env x = case parseExpWithMode mode x of
     ParseOk p -> Right $ translate p (constants env) [] true
     f@(ParseFailed _ _) -> Left $ show f
 
+iparseCyp :: Env -> String -> Either String Cyp
+iparseCyp = iparseCypWithMode baseParseMode
+
+
 iparseProp :: Env -> String -> Either String Prop
-iparseProp env  x= do
-    (textL, textR) <- eqs
-    lhs <- iparseCyp env textL
-    rhs <- iparseCyp env textR
-    return $ Prop lhs rhs
+iparseProp env x = do
+    cyp <- iparseCypWithMode mode env' x
+    case tracePrettyA cyp of
+-- XXX: handle ".=." differently! -> Const; Exclude ".=." from inner terms ...
+        Application (Application (Variable ".=.") lhs) rhs -> Right $ Prop lhs rhs
+        _ -> Left $ "Term '" ++ x ++ "' is not a proposition"
   where
-    eqs = case break (=='=') x of
-        (_,[]) -> Left $ "Not a proposition '" ++ x ++ "'"
-        (l,r) -> Right (l, tail r)
+    env' = env { constants = ".=" : constants env }
+    mode = baseParseMode { fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol ".=.") : baseFixities }
 
 unsafeParseCyp :: String -> ConstList -> Cyp
 unsafeParseCyp x global = translate (transform $ parseExpWithMode baseParseMode x) global [] true
@@ -741,7 +745,7 @@ equationsParser = do
     equations' = do
         spaces
         line <- toEol
-        lines <- many1 (try (manySpacesOrComment >> string "=" >> lineSpaces >> toEol))
+        lines <- many1 (try (manySpacesOrComment >> string ".=." >> lineSpaces >> toEol))
         env <- getState
         let eqs = map (iparseCyp env) (line : lines)
         toParsec fmt . sequence $ eqs
