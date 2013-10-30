@@ -161,7 +161,7 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
 
     validateOver env text = do
         exp <- iparseExp baseParseMode text
-        case translate exp [] [] true of -- XXX: We should take the constant list into account?
+        case translate Variable exp of -- XXX: We should take the constant list into account?
             Variable v -> return v
             _ -> Left $ "Variable '" ++ text ++ "' is not a valid induction variable"
 
@@ -339,22 +339,17 @@ getConstList (cons ,_) = cons
 getVariableList :: (ConstList, VariableList) -> VariableList
 getVariableList (_, var) = var
 
-translate' :: (String -> Cyp) -> Exp -> Cyp
-translate' f (Var v) = f $ translateQName v
-translate' _ (Con c) = Const (translateQName c)
-translate' _ (Lit l) = Literal l
-translate' f (InfixApp e1 (QConOp i) e2) =
-    (Const $ translateQName i) `Application` translate' f e1 `Application` translate' f e2
-translate' f (InfixApp e1 (QVarOp i) e2) =
-    (f $ translateQName i) `Application` translate' f e1 `Application` translate' f e2
-translate' f (App e1 e2) = translate' f e1 `Application` translate' f e2
-translate' f (Paren e) = translate' f e
-translate' f (List l) = foldr (\e es -> Const ":" `Application` translate' f e `Application` es) (Const "[]") l
-
-translate e cs vs test = translate' f e
-  where
-    f s | elem s cs = Const s
-        | test s vs = Variable s
+translate :: (String -> Cyp) -> Exp -> Cyp
+translate f (Var v) = f $ translateQName v
+translate _ (Con c) = Const (translateQName c)
+translate _ (Lit l) = Literal l
+translate f (InfixApp e1 (QConOp i) e2) =
+    (Const $ translateQName i) `Application` translate f e1 `Application` translate f e2
+translate f (InfixApp e1 (QVarOp i) e2) =
+    (f $ translateQName i) `Application` translate f e1 `Application` translate f e2
+translate f (App e1 e2) = translate f e1 `Application` translate f e2
+translate f (Paren e) = translate f e
+translate f (List l) = foldr (\e es -> Const ":" `Application` translate f e `Application` es) (Const "[]") l
 
 translateQName :: QName -> String
 translateQName (Qual (ModuleName m) (Ident n)) = m ++ "." ++ n
@@ -469,7 +464,7 @@ readDataType = sequence . mapMaybe parseDecl
     parseCons :: String -> Either String TCyp
     parseCons s = do
         exp <- iparseExp baseParseMode s
-        return $ translateToTyp $ translate exp [] [] true
+        return $ translateToTyp $ translate Variable exp
 
 
 readAxiom :: [String] -> [ParseDeclTree] -> Either String [Prop]
@@ -485,7 +480,7 @@ readSym = sequence . mapMaybe parseSym
   where
     parseSym (SymDecl s) = Just $ do
         exp <- iparseExp baseParseMode s
-        return $ transformVartoConst $ translate exp [] [] true
+        return $ transformVartoConst $ translate Variable exp
     parseSym _ = Nothing
 
 -- XXX move
@@ -508,7 +503,10 @@ readFunc pr sym =
 
         innerParseFunc :: [String] -> ([String] -> String) -> String -> (ConstList, VariableList) -> Cyp
         innerParseFunc consts f s v = parseDef (f $ splitStringAt "=" s []) (consts ++ getConstList v) (getVariableList v)
-          where parseDef s g v = translate (transform $ parseExpWithMode baseParseMode s) g v elem
+          where
+            parseDef s g v = translate (tv g v) (transform $ parseExpWithMode baseParseMode s)
+            tv g v s | s `elem` g = Const s
+                     | s `elem` v = Variable s
 
         innerParseList :: String -> (ConstList, VariableList)
         innerParseList x = parseLists $ head (splitStringAt "=" x [])
@@ -524,7 +522,8 @@ iparseExp mode s = case parseExpWithMode mode s of
 iparseCypWithMode :: ParseMode -> Env -> String -> Either String Cyp
 iparseCypWithMode mode env s = do
     p <- iparseExp mode s
-    return $ translate p (constants env) [] true
+    return $ translate tv p
+  where tv s = if s `elem` constants env then Const s else Variable s
 
 iparseCyp :: Env -> String -> Either String Cyp
 iparseCyp = iparseCypWithMode baseParseMode
