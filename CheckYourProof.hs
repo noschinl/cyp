@@ -571,6 +571,7 @@ replace old new (x:xs)
 	| isPrefixOf old (x:xs) = new ++ drop (length old) (x:xs)
 	| otherwise = x : replace old new xs
 
+-- XXX: get rid of this function
 removeEmptyFun :: [ParseDeclTree] -> [ParseDeclTree]
 removeEmptyFun ((FunDef x):xs)
 	| length (splitStringAt "=" x []) > 0 = (FunDef x) : removeEmptyFun xs
