@@ -477,12 +477,13 @@ readSym = mapMaybe parseSym
 
 -- XXX: readFunc should probably use parseDecl!
 readFunc :: [ParseDeclTree] -> [Cyp] -> ([Prop], [String])
-readFunc pr sym = (
-        map (\[x,y] -> Prop x y) $ parseFunc pr' (innerParseLists pr') (nub $ globalConstList [] sym),
-        nub $ globalConstList (innerParseLists pr') sym
-    )
+readFunc pr sym =
+        ( parseFunc pr' ipl (nub $ globalConstList [] sym)
+        , nub $ globalConstList ipl sym
+        )
     where
         pr' = tin . removeEmptyFun $ pr
+        ipl = map innerParseList pr'
         tin pr = trim $ inner pr
             where
             inner ((FunDef p):pr) = p:(inner pr)
@@ -494,21 +495,18 @@ globalConstList (x:xs) ys = getConstList x ++ (globalConstList xs ys)
 globalConstList [] ((Const y):ys) = y : (globalConstList [] ys)
 globalConstList [] [] = []
 
-parseFunc :: [[Char]] -> [(ConstList, VariableList)] -> [String] -> [[Cyp]]
-parseFunc r l g = zipWith (\a b -> [a, b]) (innerParseFunc r g l head) (innerParseFunc r g l last)
+parseFunc :: [String] -> [(ConstList, VariableList)] -> [String] -> [Prop]
+parseFunc r l g = zipWith Prop (innerParseFunc r g l head) (innerParseFunc r g l last)
 
-innerParseFunc :: [[Char]] -> [String] -> [(ConstList, VariableList)] -> ([[Char]] -> String) -> [Cyp]
+innerParseFunc :: [String] -> [String] -> [(ConstList, VariableList)] -> ([String] -> String) -> [Cyp]
 innerParseFunc [] _ _ _ = []
 innerParseFunc (x:xs) g (v:vs) f 
     = (parseDef (f (splitStringAt "=" x [])) (g ++ getConstList v) (getVariableList v)):(innerParseFunc xs g vs f)
   where
     parseDef x g v = translate (transform $ parseExpWithMode baseParseMode x) g v elem
 
-innerParseList :: [Char] -> (ConstList, VariableList)
+innerParseList :: String -> (ConstList, VariableList)
 innerParseList x = parseLists $ head (splitStringAt "=" x [])
-
-innerParseLists :: [[Char]] -> [(ConstList, VariableList)]
-innerParseLists = map innerParseList
 
 parseLists :: String -> (ConstList, VariableList)
 parseLists x = strip_comb $ transform $ parseExpWithMode baseParseMode  x
