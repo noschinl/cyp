@@ -117,6 +117,7 @@ tracePrettyA x = tracePretty x x
 tracePrettyF :: Show b => (a -> b) -> a -> a
 tracePrettyF f x = tracePretty (f x) x
 
+proof :: FilePath-> FilePath -> IO (Either String [Prop])
 proof masterFile studentFile = do
     mContent <- readFile masterFile
     sContent <- readFile studentFile
@@ -146,21 +147,21 @@ checkProofs env (l@(ParseLemma prop _) : ls) = do
 checkProof :: Env -> ParseLemma -> Either String ()
 checkProof env (ParseLemma prop (ParseEquation eqns)) = validEquationProof (axioms env) eqns prop
 checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
-    dt <- validateDatatype env dtRaw
-    over <- validateOver env overRaw
-    cases <- validateCases env dt casesRaw
+    dt <- validateDatatype dtRaw
+    over <- validateOver overRaw
+    cases <- validateCases dt casesRaw
     traverse_ (check dt over) cases
   where
     check sdt over cas = case makeProof prop (snd cas) over sdt (axioms env) of
         Right x -> Right x
         Left x -> Left $ "Error in case '" ++ (fst cas) ++ "' " ++ x
 
-    validateDatatype env name = case find (\dt -> getDtName dt == name) (datatypes env) of
+    validateDatatype name = case find (\dt -> getDtName dt == name) (datatypes env) of
         Nothing -> Left $  "Invalid datatype '" ++ name ++ "'. Expected one of "
             ++ show (map getDtName $ datatypes env)
         Just dt -> Right dt
 
-    validateOver env text = do
+    validateOver text = do
         exp <- iparseExp baseParseMode text
         -- XXX: We should take the constant list into account?
         cyp <- translate (Right . Variable) exp
@@ -168,7 +169,7 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
             Variable v -> return v
             _ -> Left $ "Variable '" ++ text ++ "' is not a valid induction variable"
 
-    validateCases env dt cases = do
+    validateCases dt cases = do
         case missingCase of
             Nothing -> return cases
             Just (name, _) -> Left $ "Missing case '" ++ name ++ "'"
@@ -556,7 +557,7 @@ deleteAll (x:xs) a
 	| otherwise = x : (deleteAll xs a)
 									 
 splitStringAt :: Eq a => [a] -> [a] -> [a] -> [[a]]
-splitStringAt a [] h 
+splitStringAt _ [] h 
 	| h == [] = []
 	| otherwise = h : []
 splitStringAt a (x:xs) h 
@@ -579,24 +580,25 @@ replace old new (x:xs)
 toParsec :: (a -> String) -> Either a b -> Parsec c u b
 toParsec f = either (fail . f) return
 
-eol =   try (string "\n\r")
-    <|> try (string "\r\n")
-    <|> string "\n"
-    <|> string "\r"
-    <?> "end of line"
+eol :: Parsec [Char] u ()
+eol = do
+    _ <- try (string "\n\r") <|> try (string "\r\n") <|> string "\n" <|> string "\r"
+        <?> "end of line"
+    return ()
 
 commentParser :: Parsec [Char] u ()
 commentParser =
-    do  string "--" 
-        result <- many (noneOf "\r\n")
+    do  _ <- string "--" 
+        _ <- many (noneOf "\r\n")
         eol
         return ()
 longcommentParser :: Parsec [Char] u ()
 longcommentParser =
-    do  string "{-"
-        result <- manyTill anyChar (try (string "-}"))
+    do  _ <- string "{-"
+        _ <- manyTill anyChar (try (string "-}"))
         return ()
 
+commentParsers :: Parsec [Char] u ()
 commentParsers = commentParser <|> longcommentParser <?> "comment"
 
 masterParser :: Parsec [Char] () [ParseDeclTree]
@@ -649,7 +651,6 @@ equationProofParser = do
 inductionProofParser :: Parsec [Char] Env ParseProof
 inductionProofParser =
     do  keyword "Proof by induction on"
-        env <- getState
         datatype <- many (noneOf " \t")
         manySpacesOrComment
         over <- toEol
@@ -671,9 +672,9 @@ lemmaParser =
         prop <- propParser
         eol
         manySpacesOrComment
-        proof <- inductionProofParser <|> equationProofParser
+        prf <- inductionProofParser <|> equationProofParser
         manySpacesOrComment
-        return $ ParseLemma prop proof
+        return $ ParseLemma prop prf
 
 studentParser ::  Parsec [Char] Env [ParseLemma]
 studentParser =
@@ -681,17 +682,22 @@ studentParser =
         eof
         return lemmas
 
+lineSpaces :: Parsec [Char] u ()
 lineSpaces = skipMany (oneOf " \t") <?> "horizontal white space"
 
 keyword :: String -> Parsec [Char] u ()
 keyword kw = try $ do
-    string kw
+    _ <- string kw
     notFollowedBy alphaNum
     lineSpaces
 
+keywordCase :: Parsec [Char] u ()
 keywordCase = keyword "Case"
+
+keywordQED :: Parsec [Char] u ()
 keywordQED = keyword "QED"
 
+toEol :: Parsec [Char] Env String
 toEol = do
     res <- many1 (noneOf "\r\n")
     eol
@@ -705,10 +711,10 @@ equationsParser = do
   where
     equations' = do
         spaces
-        line <- toEol
-        lines <- many1 (try (manySpacesOrComment >> string ".=." >> lineSpaces >> toEol))
+        l <- toEol
+        ls <- many1 (try (manySpacesOrComment >> string ".=." >> lineSpaces >> toEol))
         env <- getState
-        let eqs = map (iparseCyp env) (line : lines)
+        let eqs = map (iparseCyp env) (l : ls)
         toParsec fmt . sequence $ eqs
     fmt err = "Failed to parse expression: " ++ err
 
@@ -721,10 +727,10 @@ caseParser = do
     eqns <- equationsParser
     manySpacesOrComment
     return (cons, eqns)
-  where validCons (DataType _ conss) cons = any (\(name,_) -> name == cons) conss
 
 manySpacesOrComment :: Parsec [Char] u ()
 manySpacesOrComment = skipMany $ (space >> return ()) <|> commentParsers
 
 -- Parse Mode with Fixities
+baseParseMode :: ParseMode
 baseParseMode = defaultParseMode { fixities = Just baseFixities }
