@@ -492,7 +492,7 @@ readFunc pr sym =
         , nub $ concatMap getConstList ipl ++ symConsts
         )
     where
-        pr' = mapMaybe (\x -> case x of { FunDef s -> Just $ trimh s; _ -> Nothing }) $ removeEmptyFun pr
+        pr' = mapMaybe (\x -> case x of { FunDef s -> Just $ trimh s; _ -> Nothing }) pr
         ipl = map innerParseList pr'
         symConsts = nub $ mapMaybe (\x -> case x of { Const y -> Just y; _ -> Nothing}) sym
 
@@ -564,14 +564,6 @@ replace _ _ [] = []
 replace old new (x:xs) 
 	| isPrefixOf old (x:xs) = new ++ drop (length old) (x:xs)
 	| otherwise = x : replace old new xs
-
--- XXX: get rid of this function
-removeEmptyFun :: [ParseDeclTree] -> [ParseDeclTree]
-removeEmptyFun ((FunDef x):xs)
-	| length (splitStringAt "=" x []) > 0 = (FunDef x) : removeEmptyFun xs
-	| otherwise = removeEmptyFun xs
-removeEmptyFun (x:xs) = x:removeEmptyFun xs
-removeEmptyFun [] = []
 
 toParsec :: (a -> String) -> Either a b -> Parsec c u b
 toParsec f = either (fail . f) return
