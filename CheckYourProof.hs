@@ -489,18 +489,18 @@ readFunc pr sym =
         ipl = map innerParseList pr'
         symConsts = nub $ mapMaybe (\x -> case x of { Const y -> Just y; _ -> Nothing}) sym
 
-parseFunc :: [String] -> String -> (ConstList, VariableList) -> Prop
-parseFunc g r l = Prop (innerParseFunc g head r l) (innerParseFunc g last r l)
+        parseFunc :: [String] -> String -> (ConstList, VariableList) -> Prop
+        parseFunc consts r l = Prop (innerParseFunc consts head r l) (innerParseFunc consts last r l)
 
-innerParseFunc :: [String] -> ([String] -> String) -> String -> (ConstList, VariableList) -> Cyp
-innerParseFunc consts f s v = parseDef (f $ splitStringAt "=" s []) (consts ++ getConstList v) (getVariableList v)
-  where parseDef s g v = translate (transform $ parseExpWithMode baseParseMode s) g v elem
+        innerParseFunc :: [String] -> ([String] -> String) -> String -> (ConstList, VariableList) -> Cyp
+        innerParseFunc consts f s v = parseDef (f $ splitStringAt "=" s []) (consts ++ getConstList v) (getVariableList v)
+          where parseDef s g v = translate (transform $ parseExpWithMode baseParseMode s) g v elem
 
-innerParseList :: String -> (ConstList, VariableList)
-innerParseList x = parseLists $ head (splitStringAt "=" x [])
+        innerParseList :: String -> (ConstList, VariableList)
+        innerParseList x = parseLists $ head (splitStringAt "=" x [])
 
-parseLists :: String -> (ConstList, VariableList)
-parseLists x = strip_comb $ transform $ parseExpWithMode baseParseMode  x
+        parseLists :: String -> (ConstList, VariableList)
+        parseLists x = strip_comb $ transform $ parseExpWithMode baseParseMode  x
 
 iparseExp :: ParseMode -> String -> Either String Exp
 iparseExp mode s = case parseExpWithMode mode s of
