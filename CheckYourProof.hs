@@ -119,7 +119,7 @@ proof masterFile studentFile = do
     let env = do
         mResult <- showLeft $ Parsec.parse masterParser masterFile mContent
         let dts = readDataType mResult
-        let (fundefs, consts) = readFunc mResult (varToConst $ readSym mResult)
+        let (fundefs, consts) = readFunc mResult (readSym mResult)
         axioms <- readAxiom consts mResult
         return $ Env { datatypes = readDataType mResult , axioms = fundefs ++ axioms , constants = consts }
     let lemmas = do
@@ -443,9 +443,6 @@ createNewLemmata (Const a) over (Variable b)
 	| otherwise = Const a
 createNewLemmata (Literal a) _ _ = Literal a
 
-varToConst :: [Cyp] -> [Cyp]
-varToConst xs = map transformVartoConst xs
-
 transformVartoConst :: Cyp -> Cyp
 transformVartoConst x = transformVartoConstList x [] true
 
@@ -475,7 +472,7 @@ readAxiom consts = sequence . mapMaybe parseAxiom
 readSym :: [ParseDeclTree] -> [Cyp]
 readSym = mapMaybe parseSym
   where
-    parseSym (SymDecl s) = Just $ translate (transform $ parseExpWithMode baseParseMode s) [] [] true
+    parseSym (SymDecl s) = Just $ transformVartoConst $ translate (transform $ parseExpWithMode baseParseMode s) [] [] true
     parseSym _ = Nothing
 
 -- XXX: readFunc should probably use parseDecl!
