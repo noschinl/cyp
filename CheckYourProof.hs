@@ -508,10 +508,15 @@ parseLists x = strip_comb $ transform $ parseExpWithMode baseParseMode  x
 parseOver :: String -> Cyp
 parseOver x = translate (transform $ parseExpWithMode baseParseMode x) [] [] true
 
-iparseCypWithMode :: ParseMode -> Env -> String -> Either String Cyp
-iparseCypWithMode mode env x = case parseExpWithMode mode x of
-    ParseOk p -> Right $ translate p (constants env) [] true
+iparseExp :: ParseMode -> String -> Either String Exp
+iparseExp mode s = case parseExpWithMode mode s of
+    ParseOk p -> Right p
     f@(ParseFailed _ _) -> Left $ show f
+
+iparseCypWithMode :: ParseMode -> Env -> String -> Either String Cyp
+iparseCypWithMode mode env s = do
+    p <- iparseExp mode s
+    return $ translate p (constants env) [] true
 
 iparseCyp :: Env -> String -> Either String Cyp
 iparseCyp = iparseCypWithMode baseParseMode
