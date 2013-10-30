@@ -611,27 +611,27 @@ masterParsers =
 axiomParser :: Parsec [Char] () ParseDeclTree
 axiomParser =
     do  keyword "lemma" 
-        result <- many (noneOf "\r\n")
+        result <- many1 (noneOf "\r\n")
         eol
         return (Axiom result)
 
 dataParser :: Parsec [Char] () ParseDeclTree
 dataParser =
     do  keyword "data"
-        result <- many (noneOf "\r\n" )
+        result <- many1 (noneOf "\r\n" )
         eol
         return (DataDecl result)
 
 symParser :: Parsec [Char] () ParseDeclTree
 symParser =
     do  keyword "declare_sym" 
-        result <- trimh <$> many (noneOf "\r\n")
+        result <- trimh <$> many1 (noneOf "\r\n")
         eol
         return (SymDecl result)
 
 funParser :: Parsec [Char] () ParseDeclTree
 funParser =
-    do  result <- many (noneOf "\r\n")
+    do  result <- many1 (noneOf "\r\n")
         eol
         return (FunDef result)
 
