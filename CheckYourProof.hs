@@ -508,10 +508,6 @@ parseLists x = strip_comb $ transform $ parseExpWithMode baseParseMode  x
 parseOver :: String -> Cyp
 parseOver x = translate (transform $ parseExpWithMode baseParseMode x) [] [] true
 
-unsafeInnerParseCyp :: [Char] -> [String] -> Prop
-unsafeInnerParseCyp pr global = Prop lhs rhs
-    where [lhs, rhs] = parseCyps (splitStringAt "=" pr []) global
-    
 iparseCypWithMode :: ParseMode -> Env -> String -> Either String Cyp
 iparseCypWithMode mode env x = case parseExpWithMode mode x of
     ParseOk p -> Right $ translate p (constants env) [] true
@@ -531,12 +527,6 @@ iparseProp env x = do
   where
     env' = env { constants = ".=" : constants env }
     mode = baseParseMode { fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol ".=.") : baseFixities }
-
-unsafeParseCyp :: String -> ConstList -> Cyp
-unsafeParseCyp x global = translate (transform $ parseExpWithMode baseParseMode x) global [] true
-
-parseCyps :: [String] -> ConstList -> [Cyp]
-parseCyps xs global = map (\x -> unsafeParseCyp x global) xs
 
 innerParseSym :: [Char] -> [Cyp]
 innerParseSym x = parseSym (splitStringAt "=" x [])
