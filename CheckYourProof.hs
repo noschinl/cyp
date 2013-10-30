@@ -478,22 +478,13 @@ readSym = mapMaybe parseSym
 -- XXX: readFunc should probably use parseDecl!
 readFunc :: [ParseDeclTree] -> [Cyp] -> ([Prop], [String])
 readFunc pr sym =
-        ( parseFunc pr' ipl (nub $ globalConstList [] sym)
-        , nub $ globalConstList ipl sym
+        ( parseFunc pr' ipl symConsts
+        , nub $ concatMap getConstList ipl ++ symConsts
         )
     where
-        pr' = tin . removeEmptyFun $ pr
+        pr' = mapMaybe (\x -> case x of { FunDef s -> Just $ trimh s; _ -> Nothing }) $ removeEmptyFun pr
         ipl = map innerParseList pr'
-        tin pr = trim $ inner pr
-            where
-            inner ((FunDef p):pr) = p:(inner pr)
-            inner (x:pr) = inner pr
-            inner _ = []
-
-globalConstList :: [(ConstList, VariableList)] -> [Cyp] -> [String]
-globalConstList (x:xs) ys = getConstList x ++ (globalConstList xs ys)
-globalConstList [] ((Const y):ys) = y : (globalConstList [] ys)
-globalConstList [] [] = []
+        symConsts = nub $ mapMaybe (\x -> case x of { Const y -> Just y; _ -> Nothing}) sym
 
 parseFunc :: [String] -> [(ConstList, VariableList)] -> [String] -> [Prop]
 parseFunc r l g = zipWith Prop (innerParseFunc r g l head) (innerParseFunc r g l last)
