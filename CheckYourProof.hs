@@ -119,7 +119,8 @@ proof masterFile studentFile = do
     let env = do
         mResult <- showLeft $ Parsec.parse masterParser masterFile mContent
         let dts = readDataType mResult
-        let (fundefs, consts) = readFunc mResult (readSym mResult)
+        syms <- readSym mResult
+        let (fundefs, consts) = readFunc mResult syms
         axioms <- readAxiom consts mResult
         return $ Env { datatypes = readDataType mResult , axioms = fundefs ++ axioms , constants = consts }
     let lemmas = do
@@ -461,6 +462,13 @@ readDataType = mapMaybe parseDecl
       where (hd : tl) = innerParseDataType $ trimh $ s
     parseDecl _ = Nothing
 
+    innerParseDataType :: [Char] -> [TCyp]
+    innerParseDataType x = map parseDataType (splitStringAt "=|" x [])
+
+    parseDataType :: String -> TCyp
+    parseDataType s = translateToTyp $ translate (transform $ parseExpWithMode baseParseMode s) [] [] true
+
+
 readAxiom :: [String] -> [ParseDeclTree] -> Either String [Prop]
 readAxiom consts = sequence . mapMaybe parseAxiom
   where
@@ -469,10 +477,12 @@ readAxiom consts = sequence . mapMaybe parseAxiom
 
     env = Env { datatypes = [], constants = consts, axioms = [] }
 
-readSym :: [ParseDeclTree] -> [Cyp]
-readSym = mapMaybe parseSym
+readSym :: [ParseDeclTree] -> Either String [Cyp]
+readSym = sequence . mapMaybe parseSym
   where
-    parseSym (SymDecl s) = Just $ transformVartoConst $ translate (transform $ parseExpWithMode baseParseMode s) [] [] true
+    parseSym (SymDecl s) = Just $ do
+        exp <- iparseExp baseParseMode s
+        return $ transformVartoConst $ translate exp [] [] true
     parseSym _ = Nothing
 
 -- XXX: readFunc should probably use parseDecl!
@@ -524,13 +534,6 @@ iparseProp env x = do
     env' = env { constants = ".=" : constants env }
     mode = baseParseMode { fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol ".=.") : baseFixities }
 
-
-innerParseDataType :: [Char] -> [TCyp]
-innerParseDataType x = parseDataType (splitStringAt "=|" x [])
-
-parseDataType :: [String] -> [TCyp]
-parseDataType [] = []
-parseDataType (x:xs) = (translateToTyp (translate (transform $ parseExpWithMode baseParseMode x) [] [] true))  : (parseDataType xs)
 
 transform :: ParseResult t -> t
 transform (ParseOk a) = a
