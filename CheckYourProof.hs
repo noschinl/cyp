@@ -128,7 +128,7 @@ proof masterFile studentFile = do
     mkEnv mResult = Env { datatypes = readDataType mResult , axioms = fundefs ++ axioms , constants = consts }
       where
         (fundefs, consts) = readFunc mResult (varToConst $ readSym mResult)
-        axioms = readAxiom mResult consts
+        axioms = readAxiom consts mResult
 
     process env lemmas = checkProofs env lemmas
 
@@ -457,31 +457,23 @@ transformVartoConstList (Application cypCurry cyp) list f
 transformVartoConstList (Literal a) _ _ = Literal a
 
 readDataType :: [ParseDeclTree] -> [DataType]
-readDataType pr = map (\x -> DataType (getConstructorName $ head $ x) (getGoals (tail $ x) (head $ x))) (innerParse pr)
-	where
-		innerParse pr = innerParseDataTypes $ trim $ inner pr
-			where
-				inner ((DataDecl p):pr) = p:(inner pr)
-				inner (x:pr) = inner pr
-				inner _ = []
+readDataType = mapMaybe parseDecl
+  where
+    parseDecl (DataDecl s) = Just $ DataType (getConstructorName hd) (getGoals tl hd)
+      where (hd : tl) = innerParseDataType $ trimh $ s
+    parseDecl _ = Nothing
 
-readAxiom :: [ParseDeclTree] -> [String] -> [Prop]
-readAxiom pr global = innerParseCyps (tin pr) global
-	where
-		tin pr = trim $ inner pr
-			where		
-				inner ((Axiom p):pr) = p:(inner pr)
-				inner (x:pr) = inner pr
-				inner _ = []
+readAxiom :: [String] -> [ParseDeclTree] -> [Prop]
+readAxiom consts = mapMaybe parseAxiom
+  where
+    parseAxiom (Axiom s) = Just $ unsafeInnerParseCyp (trimh s) consts
+    parseAxiom _ = Nothing
 
 readSym :: [ParseDeclTree] -> [[Cyp]]
-readSym pr = innerParseSyms (tin pr)
-	where
-		tin pr = trim $ inner pr
-			where		
-				inner ((SymDecl p):pr) = p:(inner pr)
-				inner (x:pr) = inner pr
-				inner _ = []
+readSym = mapMaybe parseSym
+  where
+    parseSym (SymDecl s) = Just $ innerParseSym (trimh s)
+    parseSym _ = Nothing
 
 -- XXX: readFunc should probably use parseDecl!
 readFunc :: [ParseDeclTree] -> [Cyp] -> ([Prop], [String])
@@ -529,9 +521,6 @@ unsafeInnerParseCyp :: [Char] -> [String] -> Prop
 unsafeInnerParseCyp pr global = Prop lhs rhs
     where [lhs, rhs] = parseCyps (splitStringAt "=" pr []) global
     
-innerParseCyps :: [String] -> [String] -> [Prop]
-innerParseCyps prs global = map (\pr -> unsafeInnerParseCyp pr global) prs
-
 iparseCypWithMode :: ParseMode -> Env -> String -> Either String Cyp
 iparseCypWithMode mode env x = case parseExpWithMode mode x of
     ParseOk p -> Right $ translate p (constants env) [] true
@@ -558,18 +547,12 @@ unsafeParseCyp x global = translate (transform $ parseExpWithMode baseParseMode 
 parseCyps :: [String] -> ConstList -> [Cyp]
 parseCyps xs global = map (\x -> unsafeParseCyp x global) xs
 
-innerParseSyms :: [String] -> [[Cyp]]
-innerParseSyms xs = map (innerParseSym) xs
-
 innerParseSym :: [Char] -> [Cyp]
 innerParseSym x = parseSym (splitStringAt "=" x [])
 
 parseSym :: [String] -> [Cyp]
 parseSym [] = []
 parseSym (x:xs) = (translate (transform $ parseExpWithMode baseParseMode x) [] [] true)  : (parseSym xs)
-
-innerParseDataTypes :: [String] -> [[TCyp]]
-innerParseDataTypes xs = map innerParseDataType xs
 
 innerParseDataType :: [Char] -> [TCyp]
 innerParseDataType x = parseDataType (splitStringAt "=|" x [])
