@@ -120,7 +120,7 @@ proof masterFile studentFile = do
         mResult <- showLeft $ Parsec.parse masterParser masterFile mContent
         let dts = readDataType mResult
         let (fundefs, consts) = readFunc mResult (varToConst $ readSym mResult)
-        let axioms = readAxiom consts mResult
+        axioms <- readAxiom consts mResult
         return $ Env { datatypes = readDataType mResult , axioms = fundefs ++ axioms , constants = consts }
     let lemmas = do
         e <- env
@@ -463,11 +463,13 @@ readDataType = mapMaybe parseDecl
       where (hd : tl) = innerParseDataType $ trimh $ s
     parseDecl _ = Nothing
 
-readAxiom :: [String] -> [ParseDeclTree] -> [Prop]
-readAxiom consts = mapMaybe parseAxiom
+readAxiom :: [String] -> [ParseDeclTree] -> Either String [Prop]
+readAxiom consts = sequence . mapMaybe parseAxiom
   where
-    parseAxiom (Axiom s) = Just $ unsafeInnerParseCyp (trimh s) consts
+    parseAxiom (Axiom s) = Just $ iparseProp env $ tracePrettyA $ trimh s -- XXX: trimh needed?
     parseAxiom _ = Nothing
+
+    env = Env { datatypes = [], constants = consts, axioms = [] }
 
 readSym :: [ParseDeclTree] -> [[Cyp]]
 readSym = mapMaybe parseSym
