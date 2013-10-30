@@ -443,8 +443,8 @@ createNewLemmata (Const a) over (Variable b)
 	| otherwise = Const a
 createNewLemmata (Literal a) _ _ = Literal a
 
-varToConst :: [[Cyp]] -> [Cyp]
-varToConst xs = concatMap (map transformVartoConst) xs
+varToConst :: [Cyp] -> [Cyp]
+varToConst xs = map transformVartoConst xs
 
 transformVartoConst :: Cyp -> Cyp
 transformVartoConst x = transformVartoConstList x [] true
@@ -472,10 +472,10 @@ readAxiom consts = sequence . mapMaybe parseAxiom
 
     env = Env { datatypes = [], constants = consts, axioms = [] }
 
-readSym :: [ParseDeclTree] -> [[Cyp]]
+readSym :: [ParseDeclTree] -> [Cyp]
 readSym = mapMaybe parseSym
   where
-    parseSym (SymDecl s) = Just $ innerParseSym (trimh s)
+    parseSym (SymDecl s) = Just $ translate (transform $ parseExpWithMode baseParseMode s) [] [] true
     parseSym _ = Nothing
 
 -- XXX: readFunc should probably use parseDecl!
@@ -527,12 +527,6 @@ iparseProp env x = do
     env' = env { constants = ".=" : constants env }
     mode = baseParseMode { fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol ".=.") : baseFixities }
 
-innerParseSym :: [Char] -> [Cyp]
-innerParseSym x = parseSym (splitStringAt "=" x [])
-
-parseSym :: [String] -> [Cyp]
-parseSym [] = []
-parseSym (x:xs) = (translate (transform $ parseExpWithMode baseParseMode x) [] [] true)  : (parseSym xs)
 
 innerParseDataType :: [Char] -> [TCyp]
 innerParseDataType x = parseDataType (splitStringAt "=|" x [])
