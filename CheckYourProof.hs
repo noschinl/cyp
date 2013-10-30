@@ -642,9 +642,8 @@ masterParser =
 
 masterParsers :: Parsec [Char] () ParseDeclTree
 masterParsers =
-    do many space
-       optionMaybe (try commentParser <|> try longcommentParser)
-       result <- (try dataParser <|> try axiomParser <|> try symParser <|> funParser)
+    do manySpacesOrComment
+       result <- (dataParser <|> axiomParser <|> symParser <|> try funParser)
        return result
 
 axiomParser :: Parsec [Char] () ParseDeclTree
