@@ -116,7 +116,12 @@ tracePrettyF f x = tracePretty (f x) x
 proof masterFile studentFile = do
     mContent <- readFile masterFile
     sContent <- readFile studentFile
-    let env = showLeft $ mkEnv <$> Parsec.parse masterParser masterFile mContent
+    let env = do
+        mResult <- showLeft $ Parsec.parse masterParser masterFile mContent
+        let dts = readDataType mResult
+        let (fundefs, consts) = readFunc mResult (varToConst $ readSym mResult)
+        let axioms = readAxiom consts mResult
+        return $ Env { datatypes = readDataType mResult , axioms = fundefs ++ axioms , constants = consts }
     let lemmas = do
         e <- env
         showLeft $ Parsec.runParser studentParser e studentFile sContent
@@ -124,11 +129,6 @@ proof masterFile studentFile = do
   where
     showLeft (Left x) = Left (show x)
     showLeft (Right x) = Right x
-
-    mkEnv mResult = Env { datatypes = readDataType mResult , axioms = fundefs ++ axioms , constants = consts }
-      where
-        (fundefs, consts) = readFunc mResult (varToConst $ readSym mResult)
-        axioms = readAxiom consts mResult
 
     process env lemmas = checkProofs env lemmas
 
