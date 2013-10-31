@@ -139,7 +139,7 @@ proof masterFile studentFile = do
         mResult <- showLeft $ Parsec.parse masterParser masterFile mContent
         dts <- readDataType mResult
         syms <- readSym mResult
-        (fundefs, consts) <- readFunc' syms mResult
+        (fundefs, consts) <- readFunc syms mResult
         axs <- readAxiom consts mResult
         return $ Env { datatypes = dts, axioms = fundefs ++ axs , constants = nub consts }
     let lemmas = do
@@ -469,8 +469,8 @@ readSym = sequence . mapMaybe parseSym
 listComb :: Cyp -> [Cyp] -> Cyp
 listComb = foldl Application
 
-readFunc' :: [String] -> [ParseDeclTree] -> Either String ([Prop], [String])
-readFunc' syms pds = do
+readFunc :: [String] -> [ParseDeclTree] -> Either String ([Prop], [String])
+readFunc syms pds = do
     rawDecls <- sequence . mapMaybe parseFunc $ pds
     let syms' = syms ++ map (\(sym, _, _) -> sym) rawDecls
     props <- traverse (declToProp syms') rawDecls
