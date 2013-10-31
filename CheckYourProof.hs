@@ -261,6 +261,9 @@ match t (Variable v) s = case lookup v s of
     Just t' -> if t == t' then Just s else Nothing
 match _ _ _ = Nothing
 
+matchProp :: Prop -> Prop -> [(String, Cyp)] -> Maybe [(String, Cyp)]
+matchProp (Prop l r) (Prop l' r') s = match l l' s >>= match r r'
+
 subst :: Cyp -> [(String, Cyp)] -> Cyp
 subst (Application f a) s = Application (subst f s) (subst a s)
 subst (Variable v) s = case lookup v s of
@@ -305,14 +308,14 @@ getGoal maybeGoal@(TConst a) goal
     | otherwise = TConst a
 
 mapFirstStep :: Prop -> [Cyp] -> String -> [(String, TCyp)] -> ([Prop], Cyp, [Cyp])
-mapFirstStep prop (cyp : _) over goals =
+mapFirstStep prop step over goals =
     ( map (\x -> mapProp (\y -> createNewLemmata y over x) prop) (concat fmg)
     , fromJust lastStep
     , concat tmg
     )
     where
         Prop propLhs propRhs = prop
-        indVarInst = matchInductVar propLhs over cyp
+        indVarInst = matchInductVar prop over $ Prop (head step) (last step)
         lastStep = indVarInst >>= \inst -> return $ subst propRhs [(over,inst)]
         (fmg, _ , tmg) = unzip3 mapGoals
           where mapGoals = concat $ maybeToList $ do
@@ -320,10 +323,9 @@ mapFirstStep prop (cyp : _) over goals =
                     return $ map (\(y,x) -> goalLookup x inst over (y,x)) goals
 
 -- XXX: same argument order as match?
--- XXX: We should really do this an Prop -> String -> Prop -> Maybe Cyp
-matchInductVar :: Cyp -> String -> Cyp -> Maybe Cyp
-matchInductVar pat over cyp = do
-    s <- match cyp pat []
+matchInductVar :: Prop -> String -> Prop -> Maybe Cyp
+matchInductVar pat over prop = do
+    s <- matchProp prop pat []
     guard $ instOnly over s
     lookup over s
   where instOnly x = all (\(var,inst) -> var == x || Variable var == inst)
