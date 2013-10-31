@@ -129,6 +129,13 @@ infixl 1 `mApp`
 infixl 1 `Application`
 
 
+{- Prop operations --------------------------------------------------}
+
+mapProp :: (Cyp -> Cyp) -> Prop -> Prop
+mapProp f (Prop l r) = Prop (f l) (f r)
+
+
+
 {- Main -------------------------------------------------------------}
 
 proof :: FilePath-> FilePath -> IO (Either String [Prop])
@@ -206,11 +213,9 @@ listOfProp (Prop l r) = [l, r]
 makeProof :: Prop -> [Cyp] -> String -> DataType -> [Prop] -> Either String ()
 makeProof prop step over (DataType _ datatype) rules = prf
     where
-        prop' = listOfProp prop
-        (newlemma, _, laststep, static) = mapFirstStep prop' step over datatype
-        newlemma' = map (\[l,r] -> Prop l r) newlemma
+        (newlemma, laststep, static) = mapFirstStep prop step over datatype
         -- XXX: get rid of makeSteps
-        prf = makeSteps (rules ++ newlemma') (map (\x -> transformVarToConstList x static) step) 
+        prf = makeSteps (rules ++ newlemma) (map (\x -> transformVarToConstList x static) step) 
             (transformVarToConstList laststep static)
 
         transformVarToConstList :: Cyp -> [Cyp] -> Cyp
@@ -302,19 +307,19 @@ getGoal maybeGoal@(TConst a) goal
 true :: a -> b -> Bool
 true _ _ = True
 
-mapFirstStep :: [Cyp] -> [Cyp] -> String -> [(String, TCyp)] -> ([[Cyp]], [Cyp], Cyp, [Cyp])
-mapFirstStep prop firststeps over goals =
-    ( map (\x -> map (\y -> createNewLemmata y over x) prop) (concat fmg)
-    , concat fmg
+mapFirstStep :: Prop -> [Cyp] -> String -> [(String, TCyp)] -> ([Prop], Cyp, [Cyp])
+mapFirstStep prop (cyp : _) over goals =
+    ( map (\x -> mapProp (\y -> createNewLemmata y over x) prop) (concat fmg)
     , head lastStep
     , concat tmg
     )
     where
-        lastStep = parseLastStep (head $ prop) (head $ firststeps) over (last $ prop)
+        Prop propLhs propRhs = prop
+        lastStep = parseLastStep propLhs cyp over propRhs
         (fmg, _ , tmg) = unzip3 mapGoals
             where
                 mapGoals = concatMap (\z -> map (\(y,x) -> goalLookup x z over (y,x)) goals) 
-                    (parseFirstStep (head $ prop) (head $ firststeps) over)
+                    (parseFirstStep propLhs cyp over)
 
 parseFirstStep :: Cyp -> Cyp -> String -> [Cyp]
 parseFirstStep (Variable n) m over
