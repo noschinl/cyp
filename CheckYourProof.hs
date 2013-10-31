@@ -206,10 +206,6 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
     getDtConss (DataType _ conss) = conss
     getDtName (DataType n _) = n
 
-
-listOfProp :: Prop -> [Cyp]
-listOfProp (Prop l r) = [l, r]
-
 makeProof :: Prop -> [Cyp] -> String -> DataType -> [Prop] -> Either String ()
 makeProof prop step over (DataType _ datatype) rules = do
     (newlemma, static) <- mapFirstStep prop step over datatype
