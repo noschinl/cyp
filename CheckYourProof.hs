@@ -304,9 +304,6 @@ getGoal maybeGoal@(TConst a) goal
     | maybeGoal == goal = TRec
     | otherwise = TConst a
 
-true :: a -> b -> Bool
-true _ _ = True
-
 mapFirstStep :: Prop -> [Cyp] -> String -> [(String, TCyp)] -> ([Prop], Cyp, [Cyp])
 mapFirstStep prop (cyp : _) over goals =
     ( map (\x -> mapProp (\y -> createNewLemmata y over x) prop) (concat fmg)
