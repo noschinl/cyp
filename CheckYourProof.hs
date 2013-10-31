@@ -573,16 +573,6 @@ iparseProp env x = do
     env' = env { constants = ".=" : constants env }
     mode = baseParseMode { fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol ".=.") : baseFixities }
 
-
-transform :: ParseResult t -> t
-transform (ParseOk a) = a
-    	
-deleteAll :: Eq a => [a] -> (a->Bool) -> [a]
-deleteAll [] _ = []
-deleteAll (x:xs) a 
-	| a x = deleteAll xs a
-	| otherwise = x : (deleteAll xs a)
-									 
 splitStringAt :: Eq a => [a] -> [a] -> [a] -> [[a]]
 splitStringAt _ [] h 
 	| h == [] = []
@@ -594,15 +584,6 @@ splitStringAt a (x:xs) h
 
 trimh :: String -> String
 trimh = reverse . dropWhile isSpace . reverse . dropWhile isSpace
-
-trim :: [String] -> [String]
-trim = map trimh
-
-replace :: Eq a => [a] -> [a] -> [a] -> [a]
-replace _ _ [] = []
-replace old new (x:xs) 
-	| isPrefixOf old (x:xs) = new ++ drop (length old) (x:xs)
-	| otherwise = x : replace old new xs
 
 toParsec :: (a -> String) -> Either a b -> Parsec c u b
 toParsec f = either (fail . f) return
