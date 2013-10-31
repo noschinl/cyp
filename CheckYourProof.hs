@@ -64,7 +64,7 @@ data ParseDeclTree
     | FunDef String
     deriving Show
 
-data ParseLemma = ParseLemma Prop ParseProof -- Proposition, Proof
+data ParseLemma = ParseLemma Prop ParseProof deriving Show -- Proposition, Proof
 
 data ParseProof
     = ParseInduction String String [(String, [Cyp])] -- DataTyp, Over, Cases
@@ -78,6 +78,7 @@ data Env = Env
     , axioms :: [Prop]
     , constants :: [String]
     }
+    deriving Show
 
 data DataType = DataType String [(String, TCyp)] -- name cases
     deriving (Show)
@@ -464,7 +465,7 @@ readDataType :: [ParseDeclTree] -> Either String [DataType]
 readDataType = sequence . mapMaybe parseData
   where
     parseData (DataDecl s) = Just $ do
-        (tycon : dacons) <- traverse parseCons $ splitStringAt "=|" (trimh s) [] -- XXX: trimh necessary?
+        (tycon : dacons) <- traverse parseCons $ splitStringAt "=|" (trim s) [] -- XXX: trim necessary?
         return $ DataType (getConstructorName tycon) (getGoals dacons tycon)
     parseData _ = Nothing
 
@@ -478,7 +479,7 @@ readDataType = sequence . mapMaybe parseData
 readAxiom :: [String] -> [ParseDeclTree] -> Either String [Prop]
 readAxiom consts = sequence . mapMaybe parseAxiom
   where
-    parseAxiom (Axiom s) = Just $ iparseProp env $ trimh s -- XXX: trimh needed?
+    parseAxiom (Axiom s) = Just $ iparseProp env $ trim s -- XXX: trim needed?
     parseAxiom _ = Nothing
 
     env = Env { datatypes = [], constants = consts, axioms = [] }
@@ -582,8 +583,8 @@ splitStringAt a (x:xs) h
 	| otherwise = splitStringAt a xs (h++[x])
 												 
 
-trimh :: String -> String
-trimh = reverse . dropWhile isSpace . reverse . dropWhile isSpace
+trim :: String -> String
+trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
 
 toParsec :: (a -> String) -> Either a b -> Parsec c u b
 toParsec f = either (fail . f) return
@@ -638,7 +639,7 @@ dataParser =
 symParser :: Parsec [Char] () ParseDeclTree
 symParser =
     do  keyword "declare_sym" 
-        result <- trimh <$> many1 (noneOf "\r\n")
+        result <- trim <$> many1 (noneOf "\r\n")
         eol
         return (SymDecl result)
 
@@ -730,7 +731,7 @@ caseParser :: Parsec [Char] Env (String, [Cyp])
 caseParser = do
     keywordCase
     manySpacesOrComment
-    cons <- trimh <$> toEol
+    cons <- trim <$> toEol
     manySpacesOrComment
     eqns <- equationsParser
     manySpacesOrComment
