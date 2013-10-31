@@ -4,6 +4,7 @@ data Tree a = Leaf | Tree a (Tree a) (Tree a)
 declare_sym (+)
 declare_sym (++)
 declare_sym tail
+declare_sym map
 --Aufpassen bei Infix Application! Kein (x) vergessen, mit x = Infix Application! 
 
 
