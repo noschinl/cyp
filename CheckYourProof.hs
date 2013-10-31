@@ -465,9 +465,6 @@ readSym = sequence . mapMaybe parseSym
             _ -> Left $ "Expression '" ++ s ++ "' is not a symbol"
     parseSym _ = Nothing
 
--- XXX move
-listComb :: Cyp -> [Cyp] -> Cyp
-listComb = foldl Application
 
 readFunc :: [String] -> [ParseDeclTree] -> Either String ([Prop], [String])
 readFunc syms pds = do
@@ -478,6 +475,8 @@ readFunc syms pds = do
   where
     strOfName (Ident s) = s
     strOfName (Symbol s) = s
+
+    listComb = foldl Application
 
     declToProp :: [String] -> (String, [Exts.Pat], Exts.Exp) -> Either String Prop
     declToProp syms (funSym, pats, rawRhs) = do
