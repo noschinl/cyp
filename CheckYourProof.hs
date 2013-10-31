@@ -307,15 +307,16 @@ getGoal maybeGoal@(TConst a) goal
 mapFirstStep :: Prop -> [Cyp] -> String -> [(String, TCyp)] -> ([Prop], Cyp, [Cyp])
 mapFirstStep prop (cyp : _) over goals =
     ( map (\x -> mapProp (\y -> createNewLemmata y over x) prop) (concat fmg)
-    , head lastStep
+    , fromJust lastStep
     , concat tmg
     )
     where
         Prop propLhs propRhs = prop
-        lastStep = parseLastStep propLhs cyp over propRhs
+        indVarInst = matchInductVar propLhs over cyp
+        lastStep = indVarInst >>= \inst -> return $ subst propRhs [(over,inst)]
         (fmg, _ , tmg) = unzip3 mapGoals
           where mapGoals = concat $ maybeToList $ do
-                    inst <- matchInductVar propLhs over cyp
+                    inst <- indVarInst
                     return $ map (\(y,x) -> goalLookup x inst over (y,x)) goals
 
 -- XXX: same argument order as match?
@@ -340,17 +341,6 @@ goalLookup (TConst a) (Const b) _ x
 goalLookup (TNRec _) (Variable b) _ _ = ([], [], [Variable b])
 goalLookup (TRec) b _ _ = ([b], [], [b])
 goalLookup _ _ _  x = ([], [x], [])
-
-parseLastStep :: Cyp -> Cyp -> String -> Cyp -> [Cyp]
-parseLastStep (Variable n) m over last
-    | over == n =  [subst last [(n, m)]]
-    | otherwise = []
-parseLastStep (Literal _) _ _ _ = []
-parseLastStep (Const _) _ _ _ = []
-parseLastStep (Application cypCurry cyp) (Application cypthesisCurry cypthesis) over last 
-    = (parseLastStep cypCurry cypthesisCurry over last) ++ (parseLastStep cyp cypthesis over last)
-parseLastStep _ _ _ _ = []
-
 
 createNewLemmata :: Cyp -> String -> Cyp -> Cyp
 createNewLemmata (Application cypcurry cyp) over b =  Application (createNewLemmata cypcurry over b) (createNewLemmata cyp over b)
