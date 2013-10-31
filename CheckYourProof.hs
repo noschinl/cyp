@@ -125,9 +125,9 @@ proof masterFile studentFile = do
         mResult <- showLeft $ Parsec.parse masterParser masterFile mContent
         dts <- readDataType mResult
         syms <- readSym mResult
-        let (fundefs, consts) = readFunc mResult syms
-        axioms <- readAxiom consts mResult
-        return $ Env { datatypes = dts, axioms = fundefs ++ axioms , constants = consts }
+        (fundefs, consts) <- readFunc' syms mResult
+        axs <- readAxiom consts mResult
+        return $ Env { datatypes = dts, axioms = fundefs ++ axs , constants = nub consts }
     let lemmas = do
         e <- env
         showLeft $ Parsec.runParser studentParser e studentFile sContent
@@ -493,32 +493,59 @@ readSym = sequence . mapMaybe parseSym
 listComb :: Cyp -> [Cyp] -> Cyp
 listComb = foldl Application
 
--- XXX: readFunc should probably use parseDecl!
-readFunc :: [ParseDeclTree] -> [Cyp] -> ([Prop], [String])
-readFunc pr sym =
-        ( zipWith (parseFunc symConsts) pr' ipl
-        , nub $ concatMap getConstList ipl ++ symConsts
-        )
-    where
-        pr' = mapMaybe (\x -> case x of { FunDef s -> Just $ trimh s; _ -> Nothing }) pr
-        ipl = map innerParseList pr'
-        symConsts = nub $ mapMaybe (\x -> case x of { Const y -> Just y; _ -> Nothing}) sym
+readFunc' :: [Cyp] -> [ParseDeclTree] -> Either String ([Prop], [String])
+readFunc' syms pds = do
+    rawDecls <- sequence . mapMaybe parseFunc $ pds
+    let syms' = syms ++ map (\(sym, _, _) -> sym) rawDecls
+    props <- traverse (declToProp syms') rawDecls
+    return (props, map (\(Const c) -> c) syms')
+  where
+    strOfName (Ident s) = s
+    strOfName (Symbol s) = s
 
-        parseFunc :: [String] -> String -> (ConstList, VariableList) -> Prop
-        parseFunc consts r l = Prop (innerParseFunc consts head r l) (innerParseFunc consts last r l)
+    declToProp :: [Cyp] -> (Cyp, [Exts.Pat], Exts.Exp) -> Either String Prop
+    declToProp syms (funSym, pats, rawRhs) = do
+        tPat <- traverse translatePat pats
+        rhs <- translate tv rawRhs
+        return $ Prop (listComb funSym tPat) rhs
+      where
+        pvars = concatMap collectPVars pats
+        tv s | s `elem` pvars = Right $ Variable s
+             | Const s `elem` syms = Right $ Const s -- XXX Strange?
+             | otherwise = Left $ "Unbound variable '" ++ s ++ "' not allowed on rhs"
 
-        innerParseFunc :: [String] -> ([String] -> String) -> String -> (ConstList, VariableList) -> Cyp
-        innerParseFunc consts f s v = parseDef (f $ splitStringAt "=" s []) (consts ++ getConstList v) (getVariableList v)
-          where
-            parseDef s g v = unsafeTranslate (tv g v) (transform $ parseExpWithMode baseParseMode s)
-            tv g v s | s `elem` g = Const s
-                     | s `elem` v = Variable s
+    collectPVars :: Exts.Pat -> [String]
+    collectPVars (Exts.PVar v) = [strOfName v]
+    collectPVars (Exts.PInfixApp p1 _ p2) = collectPVars p1 ++ collectPVars p2
+    collectPVars (Exts.PApp _ ps) = concatMap collectPVars ps
+    collectPVars (Exts.PList ps) = concatMap collectPVars ps
+    collectPVars (Exts.PParen p) = collectPVars p
+    collectPVars _ = []
 
-        innerParseList :: String -> (ConstList, VariableList)
-        innerParseList x = parseLists $ head (splitStringAt "=" x [])
+    translatePat :: Exts.Pat -> Either String Cyp
+    translatePat (Exts.PVar v) = Right $ Variable $ strOfName v
+    translatePat (Exts.PLit l) = Right $ Literal l
+    -- PNeg?
+    translatePat (Exts.PNPlusK _ _) = Left "n+k patterns are not supported"
+    translatePat (Exts.PInfixApp p1 qn p2) =
+        (Right $ Const $ translateQName qn) `mApp` translatePat p1 `mApp` translatePat p2
+    translatePat (Exts.PApp qn ps) = do
+        cs <- traverse translatePat ps
+        return $ listComb (Const $ translateQName qn) cs
+    translatePat (Exts.PTuple _) = Left "tuple patterns are not supported"
+    translatePat (Exts.PList ps) = foldr (\p cs -> Right (Const ":") `mApp` translatePat p `mApp` cs) (Right $ Const "[]") ps
+    translatePat (Exts.PParen p) = translatePat p
+    translatePat (Exts.PAsPat _ _) = Left "as patterns are not supported"
+    translatePat Exts.PWildCard = Left "wildcard patterns are not supported"
+    translatePat f = Left $ "unsupported pattern type: " ++ show f
 
-        parseLists :: String -> (ConstList, VariableList)
-        parseLists x = strip_comb $ transform $ parseExpWithMode baseParseMode  x
+    parseFunc :: ParseDeclTree -> Maybe (Either String (Cyp, [Exts.Pat], Exts.Exp))
+    parseFunc (FunDef s) = Just $ case parseDecl s of
+        ParseOk (Exts.FunBind [Exts.Match _ name pat _ (Exts.UnGuardedRhs rhs) (Exts.BDecls [])])
+            -> Right $ (Const $ strOfName name, pat, rhs)
+        ParseOk _ -> Left $ "Invalid function definition '" ++ s ++ "'."
+        f@(ParseFailed _ _ ) -> Left $ show f
+    parseFunc _ = Nothing
 
 iparseExp :: ParseMode -> String -> Either String Exp
 iparseExp mode s = case parseExpWithMode mode s of
