@@ -314,19 +314,14 @@ mapFirstStep prop (cyp : _) over goals =
         Prop propLhs propRhs = prop
         lastStep = parseLastStep propLhs cyp over propRhs
         (fmg, _ , tmg) = unzip3 mapGoals
-            where
-                mapGoals = concatMap (\z -> map (\(y,x) -> goalLookup x z over (y,x)) goals) 
-                    (parseFirstStep propLhs cyp over)
+          where mapGoals = concat $ maybeToList $ do
+                    inst <- matchInductVar propLhs over cyp
+                    return $ map (\(y,x) -> goalLookup x inst over (y,x)) goals
 
-parseFirstStep :: Cyp -> Cyp -> String -> [Cyp]
-parseFirstStep (Variable n) m over
-	| over == n =  [m]
-    | otherwise = []
-parseFirstStep (Literal _) _ _ = []
-parseFirstStep (Const _) _ _  = []
-parseFirstStep (Application cypCurry cyp) (Application cypthesisCurry cypthesis) over 
-    = (parseFirstStep cypCurry cypthesisCurry over) ++ (parseFirstStep cyp cypthesis over)
-parseFirstStep _ _ _ = []
+-- XXX: same argument order as match?
+-- XXX: We should really do this an Prop -> String -> Prop -> Maybe Cyp
+matchInductVar :: Cyp -> String -> Cyp -> Maybe Cyp
+matchInductVar pat over cyp = match cyp pat [] >>= lookup over
 
 goalLookup :: TCyp -> Cyp -> String -> (String, TCyp) -> ([Cyp], [(String, TCyp)], [Cyp])
 goalLookup (TApplication tcypcurry tcyp) (Application cypcurry cyp) over x 
