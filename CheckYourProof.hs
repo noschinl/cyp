@@ -210,8 +210,8 @@ makeProof prop step over (DataType _ datatype) rules = prf
         rules' = map listOfProp rules
         (newlemma, _, laststep, static) = mapFirstStep prop' step over datatype
         -- XXX: get rid of makeSteps
-        prf = makeSteps (rules' ++ newlemma) (map (\x -> transformVartoConstList x static elem) step) 
-            (transformVartoConstList laststep static elem)
+        prf = makeSteps (rules' ++ newlemma) (map (\x -> transformVartoConstList x static) step) 
+            (transformVartoConstList laststep static)
 
 validEquations :: [Prop] -> [Cyp] -> Either String ()
 validEquations _ [] = Left "Empty equation sequence"
@@ -424,13 +424,13 @@ createNewLemmata (Const a) over (Variable b)
 	| otherwise = Const a
 createNewLemmata (Literal a) _ _ = Literal a
 
-transformVartoConstList :: Cyp -> [Cyp] -> (Cyp -> [Cyp] -> Bool) -> Cyp
-transformVartoConstList (Variable v) list f | f (Variable v) list = Const v
-                                            | otherwise = Variable v
-transformVartoConstList (Const v) _ _ = Const v
-transformVartoConstList (Application cypCurry cyp) list f 
-    = Application (transformVartoConstList cypCurry list f) (transformVartoConstList cyp list f)
-transformVartoConstList (Literal a) _ _ = Literal a
+transformVartoConstList :: Cyp -> [Cyp] -> Cyp
+transformVartoConstList (Variable v) list | Variable v `elem` list = Const v
+                                          | otherwise = Variable v
+transformVartoConstList (Const v) _ = Const v
+transformVartoConstList (Application cypCurry cyp) list
+    = Application (transformVartoConstList cypCurry list) (transformVartoConstList cyp list)
+transformVartoConstList (Literal a) _ = Literal a
 
 readDataType :: [ParseDeclTree] -> Either String [DataType]
 readDataType = sequence . mapMaybe parseData
