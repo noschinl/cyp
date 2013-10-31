@@ -321,7 +321,11 @@ mapFirstStep prop (cyp : _) over goals =
 -- XXX: same argument order as match?
 -- XXX: We should really do this an Prop -> String -> Prop -> Maybe Cyp
 matchInductVar :: Cyp -> String -> Cyp -> Maybe Cyp
-matchInductVar pat over cyp = match cyp pat [] >>= lookup over
+matchInductVar pat over cyp = do
+    s <- match cyp pat []
+    guard $ instOnly over s
+    lookup over s
+  where instOnly x = all (\(var,inst) -> var == x || Variable var == inst)
 
 goalLookup :: TCyp -> Cyp -> String -> (String, TCyp) -> ([Cyp], [(String, TCyp)], [Cyp])
 goalLookup (TApplication tcypcurry tcyp) (Application cypcurry cyp) over x 
