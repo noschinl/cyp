@@ -207,10 +207,10 @@ makeProof :: Prop -> [Cyp] -> String -> DataType -> [Prop] -> Either String ()
 makeProof prop step over (DataType _ datatype) rules = prf
     where
         prop' = listOfProp prop
-        rules' = map listOfProp rules
         (newlemma, _, laststep, static) = mapFirstStep prop' step over datatype
+        newlemma' = map (\[l,r] -> Prop l r) newlemma
         -- XXX: get rid of makeSteps
-        prf = makeSteps (rules' ++ newlemma) (map (\x -> transformVarToConstList x static) step) 
+        prf = makeSteps (rules ++ newlemma') (map (\x -> transformVarToConstList x static) step) 
             (transformVarToConstList laststep static)
 
         transformVarToConstList :: Cyp -> [Cyp] -> Cyp
@@ -221,7 +221,7 @@ validEquations :: [Prop] -> [Cyp] -> Either String ()
 validEquations _ [] = Left "Empty equation sequence"
 validEquations _ [_] = Right ()
 validEquations rules (t1:t2:ts)
-    | t2 `elem` applyall t1 (map listOfProp rules) = validEquations rules (t2:ts)
+    | t2 `elem` rewriteAll t1 rules = validEquations rules (t2:ts)
     | otherwise = Left $ "(nmr) No matching rule: step " ++ printInfo t1 ++ " to " ++ printInfo t2
 
 validEquationProof :: [Prop] -> [Cyp] -> Prop -> Either String ()
@@ -234,17 +234,14 @@ validEquationProof rules eqns aim = do
 
 
 
-makeSteps :: [[Cyp]] -> [Cyp] -> Cyp -> Either String ()
+makeSteps :: [Prop] -> [Cyp] -> Cyp -> Either String ()
 makeSteps rules (x:y:steps) aim 
-    | y `elem` applyall x rules = makeSteps rules (y:steps) aim
+    | y `elem` rewriteAll x rules = makeSteps rules (y:steps) aim
     | otherwise = Left $ "(nmr) No matching rule: step " ++ printInfo x ++ " to " ++ printInfo  y
 makeSteps _ [x] aim 
     | x == aim = Right ()
     | x /= aim = Left $ "(eop) End of proof is not the right side of induction: " ++ printInfo x ++ " to " ++ printInfo aim
 makeSteps _ _ _ = Left $ "Error"
-
-applyall :: Cyp -> [[Cyp]] -> [Cyp]
-applyall step rules = concatMap (\rule -> concat $ nub [apply step (x, y) | x <- rule, y <- rule]) rules
 
 match :: Cyp -> Cyp -> [(String, Cyp)] -> Maybe [(String, Cyp)]
 match (Application f a) (Application f' a') s = match f f' s >>= match a a'
@@ -266,15 +263,20 @@ subst (Variable v) s = case lookup v s of
       Just t -> t
 subst t _ = t
 
-apply_top :: Cyp -> (Cyp,Cyp) -> Maybe Cyp
-apply_top t (lhs, rhs) = fmap (subst rhs) $ match t lhs []
+rewriteTop :: Cyp -> Prop -> Maybe Cyp
+rewriteTop t (Prop lhs rhs) = fmap (subst rhs) $ match t lhs []
 
-apply :: Cyp -> (Cyp,Cyp) -> [Cyp]
-apply t@(Application f a) eq =
-    maybeToList (apply_top t eq)
-    ++ map (\x -> Application x a) (apply f eq)
-    ++ map (Application f) (apply a eq)
-apply t eq = maybeToList $ apply_top t eq
+rewrite :: Cyp -> Prop -> [Cyp]
+rewrite t@(Application f a) prop =
+    maybeToList (rewriteTop t prop)
+    ++ map (\x -> Application x a) (rewrite f prop)
+    ++ map (Application f) (rewrite a prop)
+rewrite t prop = maybeToList $ rewriteTop t prop
+
+-- XXX: move reflexivity out of rewriteAll, it is unexpected here ...
+rewriteAll :: Cyp -> [Prop] -> [Cyp]
+rewriteAll cyp rules = cyp : concatMap (rewrite cyp) rules'
+    where rules' = rules ++ map (\(Prop l r) -> Prop r l) rules
 
 printProp :: Prop -> String
 printProp (Prop l r) = printInfo l ++ " = " ++ printInfo r
