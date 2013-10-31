@@ -211,16 +211,14 @@ listOfProp :: Prop -> [Cyp]
 listOfProp (Prop l r) = [l, r]
 
 makeProof :: Prop -> [Cyp] -> String -> DataType -> [Prop] -> Either String ()
-makeProof prop step over (DataType _ datatype) rules = prf
-    where
-        (newlemma, laststep, static) = mapFirstStep prop step over datatype
-        -- XXX: get rid of makeSteps
-        prf = makeSteps (rules ++ newlemma) (map (\x -> transformVarToConstList x static) step) 
-            (transformVarToConstList laststep static)
-
-        transformVarToConstList :: Cyp -> [Cyp] -> Cyp
-        transformVarToConstList cyp cs = subst cyp f
-          where f = mapMaybe (\x -> case x of { Variable v -> Just (v, Const v); _ -> Nothing }) cs
+makeProof prop step over (DataType _ datatype) rules = do
+    (newlemma, static) <- mapFirstStep prop step over datatype
+    -- XXX: get rid of makeSteps
+    makeSteps (rules ++ newlemma) (map (\x -> transformVarToConstList x static) step)
+  where
+    transformVarToConstList :: Cyp -> [Cyp] -> Cyp
+    transformVarToConstList cyp cs = subst cyp f
+      where f = mapMaybe (\x -> case x of { Variable v -> Just (v, Const v); _ -> Nothing }) cs
 
 validEquations :: [Prop] -> [Cyp] -> Either String ()
 validEquations _ [] = Left "Empty equation sequence"
@@ -239,14 +237,12 @@ validEquationProof rules eqns aim = do
 
 
 
-makeSteps :: [Prop] -> [Cyp] -> Cyp -> Either String ()
-makeSteps rules (x:y:steps) aim 
-    | y `elem` rewriteAll x rules = makeSteps rules (y:steps) aim
+makeSteps :: [Prop] -> [Cyp] -> Either String ()
+makeSteps rules (x:y:steps)
+    | y `elem` rewriteAll x rules = makeSteps rules (y:steps)
     | otherwise = Left $ "(nmr) No matching rule: step " ++ printInfo x ++ " to " ++ printInfo  y
-makeSteps _ [x] aim 
-    | x == aim = Right ()
-    | x /= aim = Left $ "(eop) End of proof is not the right side of induction: " ++ printInfo x ++ " to " ++ printInfo aim
-makeSteps _ _ _ = Left $ "Error"
+makeSteps _ [_] = return ()
+makeSteps _ _ = Left $ "Error"
 
 match :: Cyp -> Cyp -> [(String, Cyp)] -> Maybe [(String, Cyp)]
 match (Application f a) (Application f' a') s = match f f' s >>= match a a'
@@ -307,22 +303,16 @@ getGoal maybeGoal@(TConst a) goal
     | maybeGoal == goal = TRec
     | otherwise = TConst a
 
-mapFirstStep :: Prop -> [Cyp] -> String -> [(String, TCyp)] -> ([Prop], Cyp, [Cyp])
-mapFirstStep prop step over goals =
-    ( map (\x -> mapProp (\y -> createNewLemmata y over x) prop) (concat fmg)
-    , fromJust lastStep
-    , concat tmg
-    )
-    where
-        Prop propLhs propRhs = prop
-        indVarInst = matchInductVar prop over $ Prop (head step) (last step)
-        lastStep = indVarInst >>= \inst -> return $ subst propRhs [(over,inst)]
-        (fmg, _ , tmg) = unzip3 mapGoals
-          where mapGoals = concat $ maybeToList $ do
-                    inst <- indVarInst
-                    return $ map (\(y,x) -> goalLookup x inst over (y,x)) goals
+mapFirstStep :: Prop -> [Cyp] -> String -> [(String, TCyp)] -> Either String ([Prop], [Cyp])
+mapFirstStep prop step over goals = do
+    inst <- maybe (Left "Equations do not match induction hypothesis") Right $
+        matchInductVar prop over $ Prop (head step) (last step)
+    let (fmg, _, tmg) = unzip3 $ map (\(y,x) -> goalLookup x inst over (y,x)) goals
+    return
+        ( map (\x -> mapProp (\y -> createNewLemmata y over x) prop) (concat fmg)
+        , concat tmg
+        )
 
--- XXX: same argument order as match?
 matchInductVar :: Prop -> String -> Prop -> Maybe Cyp
 matchInductVar pat over prop = do
     s <- matchProp prop pat []
