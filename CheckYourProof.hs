@@ -101,13 +101,8 @@ data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Litera
 data TCyp = TApplication TCyp TCyp | TConst String | TNRec String | TRec
     deriving (Show, Eq)
 
-{- Cyp operations ---------------------------------------------------}
 
-mApp :: Monad m => m Cyp -> m Cyp -> m Cyp
-mApp = liftM2 Application
-
-infixl 1 `mApp`
-infixl 1 `Application`
+{- Debug tools ------------------------------------------------------}
 
 tracePretty :: Show a => a -> b -> b
 tracePretty = trace . ppShow
@@ -117,6 +112,24 @@ tracePrettyA x = tracePretty x x
 
 tracePrettyF :: Show b => (a -> b) -> a -> a
 tracePrettyF f x = tracePretty (f x) x
+
+printRunnable :: Cyp -> String
+printRunnable (Application cypCurry cyp) = "(" ++ (printRunnable cypCurry) ++ " " ++ (printRunnable cyp) ++ ")"
+printRunnable (Literal a) = translateLiteral a
+printRunnable (Variable a) = a
+printRunnable (Const a) = a
+
+
+{- Cyp operations ---------------------------------------------------}
+
+mApp :: Monad m => m Cyp -> m Cyp -> m Cyp
+mApp = liftM2 Application
+
+infixl 1 `mApp`
+infixl 1 `Application`
+
+
+{- Main -------------------------------------------------------------}
 
 proof :: FilePath-> FilePath -> IO (Either String [Prop])
 proof masterFile studentFile = do
@@ -270,16 +283,6 @@ edit (Variable a) x = extract (lookup (Variable a) x)
 	where
 		extract (Just n) = n
 		extract (Nothing) = (Variable a)
-		
-printCypEquoations :: [[Cyp]] -> [[String]]
-printCypEquoations [] = []
-printCypEquoations (x:xs) = [map printInfo x] ++ (printCypEquoations xs)
-
-printRunnable :: Cyp -> String
-printRunnable (Application cypCurry cyp) = "(" ++ (printRunnable cypCurry) ++ " " ++ (printRunnable cyp) ++ ")"
-printRunnable (Literal a) = translateLiteral a
-printRunnable (Variable a) = a
-printRunnable (Const a) = a
 
 printProp :: Prop -> String
 printProp (Prop l r) = printInfo l ++ " = " ++ printInfo r
@@ -312,32 +315,6 @@ getConstructorName (TApplication (TConst a) _) = a
 getConstructorName (TConst a) = a
 getConstructorName (TApplication cypCurry _) = getConstructorName cypCurry
 
-strip_comb :: Exp -> (ConstList, VariableList)
-strip_comb x = strip_comb' x True
-    where
-        strip_comb' :: Exp -> Bool -> (ConstList, VariableList)
-        strip_comb' (Var n) True = ([translateQName n], [])
-        strip_comb' (Var n) False = ([], [translateQName n])
-        strip_comb' (Con c) _ = ([translateQName c], [])
-        strip_comb' (App e1 e2) b = (cs1 ++ cs2, vs1 ++ vs2)
-            where
-                (cs1,vs1) = strip_comb' e1 b
-                (cs2,vs2) = strip_comb' e2 False
-        strip_comb' (InfixApp e1 (QConOp i) e2) b = ([translateQName i] ++ cs1 ++ cs2 , vs1 ++ vs2)
-            where
-                (cs1,vs1) = strip_comb' e1 b
-                (cs2,vs2) = strip_comb' e2 False
-        strip_comb' (InfixApp e1 (QVarOp i) e2) b = ([translateQName i] ++ cs1 ++ cs2, vs1 ++ vs2)
-            where
-                (cs1,vs1) = strip_comb' e1 b
-                (cs2,vs2) = strip_comb' e2 False
-        strip_comb' (Paren e) b = strip_comb' e b
-        strip_comb' (List []) _ = (["[]"], [])
-        strip_comb' (List (x:xs)) _ = ([":"] ++ csh ++ cst, vsh ++ vst)
-            where
-                (csh,vsh) = strip_comb' x False
-                (cst,vst) = strip_comb' (List xs) False
-
 getConstList :: (ConstList, VariableList) -> ConstList
 getConstList (cons ,_) = cons
 
@@ -355,9 +332,6 @@ translate f (InfixApp e1 (QVarOp i) e2) =
 translate f (App e1 e2) = translate f e1 `mApp` translate f e2
 translate f (Paren e) = translate f e
 translate f (List l) = foldr (\e es -> Right (Const ":") `mApp` translate f e `mApp` es) (Right $ Const "[]") l
-
-unsafeTranslate :: (String -> Cyp) -> Exp -> Cyp
-unsafeTranslate f exp = case translate (Right . f) exp of { Right c -> c }
 
 translateQName :: QName -> String
 translateQName (Qual (ModuleName m) (Ident n)) = m ++ "." ++ n
@@ -449,9 +423,6 @@ createNewLemmata (Const a) over (Variable b)
 	| over == a = Const b
 	| otherwise = Const a
 createNewLemmata (Literal a) _ _ = Literal a
-
-transformVartoConst :: Cyp -> Cyp
-transformVartoConst x = transformVartoConstList x [] true
 
 transformVartoConstList :: Cyp -> [Cyp] -> (Cyp -> [Cyp] -> Bool) -> Cyp
 transformVartoConstList (Variable v) list f | f (Variable v) list = Const v
@@ -585,6 +556,9 @@ splitStringAt a (x:xs) h
 
 trim :: String -> String
 trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
+
+
+{- Parser for the outer syntax --------------------------------------}
 
 toParsec :: (a -> String) -> Either a b -> Parsec c u b
 toParsec f = either (fail . f) return
