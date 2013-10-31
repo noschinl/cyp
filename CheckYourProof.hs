@@ -259,9 +259,6 @@ match t (Variable v) s = case lookup v s of
     Just t' -> if t == t' then Just s else Nothing
 match _ _ _ = Nothing
 
-matchProp :: Prop -> Prop -> [(String, Cyp)] -> Maybe [(String, Cyp)]
-matchProp (Prop l r) (Prop l' r') s = match l l' s >>= match r r'
-
 subst :: Cyp -> [(String, Cyp)] -> Cyp
 subst (Application f a) s = Application (subst f s) (subst a s)
 subst (Variable v) s = case lookup v s of
