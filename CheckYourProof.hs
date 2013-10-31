@@ -190,13 +190,13 @@ listOfProp :: Prop -> [Cyp]
 listOfProp (Prop l r) = [l, r]
 
 makeProof :: Prop -> [Cyp] -> String -> DataType -> [Prop] -> Either String ()
-makeProof prop step over (DataType name datatype) rules = proof
+makeProof prop step over (DataType _ datatype) rules = prf
     where
         prop' = listOfProp prop
         rules' = map listOfProp rules
         (newlemma, _, laststep, static) = mapFirstStep prop' step over datatype
         -- XXX: get rid of makeSteps
-        proof = makeSteps (rules' ++ newlemma) (map (\x -> transformVartoConstList x static elem) step) 
+        prf = makeSteps (rules' ++ newlemma) (map (\x -> transformVartoConstList x static elem) step) 
             (transformVartoConstList laststep static elem)
 
 validEquations :: [Prop] -> [Cyp] -> Either String ()
@@ -220,7 +220,7 @@ makeSteps :: [[Cyp]] -> [Cyp] -> Cyp -> Either String ()
 makeSteps rules (x:y:steps) aim 
     | y `elem` applyall x rules = makeSteps rules (y:steps) aim
     | otherwise = Left $ "(nmr) No matching rule: step " ++ printInfo x ++ " to " ++ printInfo  y
-makeSteps rules [x] aim 
+makeSteps _ [x] aim 
     | x == aim = Right ()
     | x /= aim = Left $ "(eop) End of proof is not the right side of induction: " ++ printInfo x ++ " to " ++ printInfo aim
 makeSteps _ _ _ = Left $ "Error"
@@ -307,9 +307,9 @@ translateToTyp (Variable a) = TNRec a
 translateToTyp (Const a) = TConst a
 
 getConstructorName :: TCyp -> String
-getConstructorName (TApplication (TConst a) cyp) = a
+getConstructorName (TApplication (TConst a) _) = a
 getConstructorName (TConst a) = a
-getConstructorName (TApplication cypCurry cyp) = getConstructorName cypCurry
+getConstructorName (TApplication cypCurry _) = getConstructorName cypCurry
 
 strip_comb :: Exp -> (ConstList, VariableList)
 strip_comb x = strip_comb' x True
@@ -402,8 +402,8 @@ parseFirstStep :: Cyp -> Cyp -> String -> [Cyp]
 parseFirstStep (Variable n) m over
 	| over == n =  [m]
     | otherwise = []
-parseFirstStep (Literal l) _ _ = []
-parseFirstStep (Const c) _ _  = []
+parseFirstStep (Literal _) _ _ = []
+parseFirstStep (Const _) _ _  = []
 parseFirstStep (Application cypCurry cyp) (Application cypthesisCurry cypthesis) over 
     = (parseFirstStep cypCurry cypthesisCurry over) ++ (parseFirstStep cyp cypthesis over)
 parseFirstStep _ _ _ = []
@@ -415,19 +415,19 @@ goalLookup (TApplication tcypcurry tcyp) (Application cypcurry cyp) over x
 	where
 		(fgl, sgl, tgl) = goalLookup tcyp cyp over x
 		(fcgl, scgl, tcgl) = goalLookup tcypcurry cypcurry over x
-goalLookup (TConst a) (Const b) over x 
+goalLookup (TConst a) (Const b) _ x 
 	| a == b = ([], [], [])
 	| otherwise = ([], [x], [])
-goalLookup (TNRec a) (Variable b) _ _ = ([], [], [Variable b])
-goalLookup (TRec) b over x = ([b], [], [b])
+goalLookup (TNRec _) (Variable b) _ _ = ([], [], [Variable b])
+goalLookup (TRec) b _ _ = ([b], [], [b])
 goalLookup _ _ _  x = ([], [x], [])
 
 parseLastStep :: Cyp -> Cyp -> String -> Cyp -> [Cyp]
 parseLastStep (Variable n) m over last
 	| over == n =  [edit last [(Variable n, m)]]
     | otherwise = []
-parseLastStep (Literal l) _ _ _ = []
-parseLastStep (Const c) _ _ _ = []
+parseLastStep (Literal _) _ _ _ = []
+parseLastStep (Const _) _ _ _ = []
 parseLastStep (Application cypCurry cyp) (Application cypthesisCurry cypthesis) over last 
     = (parseLastStep cypCurry cypthesisCurry over last) ++ (parseLastStep cyp cypthesis over last)
 parseLastStep _ _ _ _ = []
@@ -461,17 +461,17 @@ transformVartoConstList (Application cypCurry cyp) list f
 transformVartoConstList (Literal a) _ _ = Literal a
 
 readDataType :: [ParseDeclTree] -> Either String [DataType]
-readDataType = sequence . mapMaybe parseDecl
+readDataType = sequence . mapMaybe parseData
   where
-    parseDecl (DataDecl s) = Just $ do
+    parseData (DataDecl s) = Just $ do
         (tycon : dacons) <- traverse parseCons $ splitStringAt "=|" (trimh s) [] -- XXX: trimh necessary?
         return $ DataType (getConstructorName tycon) (getGoals dacons tycon)
-    parseDecl _ = Nothing
+    parseData _ = Nothing
 
     parseCons :: String -> Either String TCyp
     parseCons s = do
-        exp <- iparseExp baseParseMode s
-        cyp <- translate (Right . Variable) exp
+        e <- iparseExp baseParseMode s
+        cyp <- translate (Right . Variable) e
         return $ translateToTyp cyp
 
 
