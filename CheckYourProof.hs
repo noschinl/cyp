@@ -300,57 +300,6 @@ getGoal maybeGoal@(TConst a) goal
     | maybeGoal == goal = TRec
     | otherwise = TConst a
 
-translateToTyp :: Cyp -> TCyp
-translateToTyp (Application cypcurry cyp) = TApplication (translateToTyp cypcurry) (translateToTyp cyp)
-translateToTyp (Variable a) = TNRec a
-translateToTyp (Const a) = TConst a
-
-getConstructorName :: TCyp -> String
-getConstructorName (TApplication (TConst a) _) = a
-getConstructorName (TConst a) = a
-getConstructorName (TApplication cypCurry _) = getConstructorName cypCurry
-
-getConstList :: (ConstList, VariableList) -> ConstList
-getConstList (cons ,_) = cons
-
-getVariableList :: (ConstList, VariableList) -> VariableList
-getVariableList (_, var) = var
-
-translate :: (String -> Either String Cyp) -> Exp -> Either String Cyp
-translate f (Var v) = f $ translateQName v
-translate _ (Con c) = Right $ Const $ translateQName c
-translate _ (Lit l) = Right $ Literal l
-translate f (InfixApp e1 (QConOp i) e2) =
-    (Right $ Const $ translateQName i) `mApp` translate f e1 `mApp` translate f e2
-translate f (InfixApp e1 (QVarOp i) e2) =
-    (f $ translateQName i) `mApp` translate f e1 `mApp` translate f e2
-translate f (App e1 e2) = translate f e1 `mApp` translate f e2
-translate f (Paren e) = translate f e
-translate f (List l) = foldr (\e es -> Right (Const ":") `mApp` translate f e `mApp` es) (Right $ Const "[]") l
-
-translateQName :: QName -> String
-translateQName (Qual (ModuleName m) (Ident n)) = m ++ "." ++ n
-translateQName (Qual (ModuleName m) (Symbol n)) = m ++ "." ++ n
-translateQName (UnQual (Ident n)) = n
-translateQName (UnQual (Symbol n)) = n
-translateQName (Special UnitCon) = "()"
-translateQName (Special ListCon) = "[]"
-translateQName (Special FunCon) = "->"
-translateQName (Special Cons) = ":"
-translateQName _ = ""
-
-translateLiteral :: Literal -> String
-translateLiteral (Char c) = [c]
-translateLiteral (String s) = s
-translateLiteral (Int c) = show c
-translateLiteral (Frac c) = show c
-translateLiteral (PrimInt c) = show c
-translateLiteral (PrimWord c) = show c
-translateLiteral (PrimFloat c) = show c
-translateLiteral (PrimDouble c) = show c
-translateLiteral (PrimChar c) = [c]
-translateLiteral (PrimString c) = c
-
 true :: a -> b -> Bool
 true _ _ = True
 
@@ -419,6 +368,59 @@ createNewLemmata (Const a) over (Variable b)
 	| otherwise = Const a
 createNewLemmata (Literal a) _ _ = Literal a
 
+
+{- Parse inner syntax -----------------------------------------------}
+
+translateToTyp :: Cyp -> TCyp
+translateToTyp (Application cypcurry cyp) = TApplication (translateToTyp cypcurry) (translateToTyp cyp)
+translateToTyp (Variable a) = TNRec a
+translateToTyp (Const a) = TConst a
+
+getConstructorName :: TCyp -> String
+getConstructorName (TApplication (TConst a) _) = a
+getConstructorName (TConst a) = a
+getConstructorName (TApplication cypCurry _) = getConstructorName cypCurry
+
+getConstList :: (ConstList, VariableList) -> ConstList
+getConstList (cons ,_) = cons
+
+getVariableList :: (ConstList, VariableList) -> VariableList
+getVariableList (_, var) = var
+
+translate :: (String -> Either String Cyp) -> Exp -> Either String Cyp
+translate f (Var v) = f $ translateQName v
+translate _ (Con c) = Right $ Const $ translateQName c
+translate _ (Lit l) = Right $ Literal l
+translate f (InfixApp e1 (QConOp i) e2) =
+    (Right $ Const $ translateQName i) `mApp` translate f e1 `mApp` translate f e2
+translate f (InfixApp e1 (QVarOp i) e2) =
+    (f $ translateQName i) `mApp` translate f e1 `mApp` translate f e2
+translate f (App e1 e2) = translate f e1 `mApp` translate f e2
+translate f (Paren e) = translate f e
+translate f (List l) = foldr (\e es -> Right (Const ":") `mApp` translate f e `mApp` es) (Right $ Const "[]") l
+
+translateQName :: QName -> String
+translateQName (Qual (ModuleName m) (Ident n)) = m ++ "." ++ n
+translateQName (Qual (ModuleName m) (Symbol n)) = m ++ "." ++ n
+translateQName (UnQual (Ident n)) = n
+translateQName (UnQual (Symbol n)) = n
+translateQName (Special UnitCon) = "()"
+translateQName (Special ListCon) = "[]"
+translateQName (Special FunCon) = "->"
+translateQName (Special Cons) = ":"
+translateQName _ = ""
+
+translateLiteral :: Literal -> String
+translateLiteral (Char c) = [c]
+translateLiteral (String s) = s
+translateLiteral (Int c) = show c
+translateLiteral (Frac c) = show c
+translateLiteral (PrimInt c) = show c
+translateLiteral (PrimWord c) = show c
+translateLiteral (PrimFloat c) = show c
+translateLiteral (PrimDouble c) = show c
+translateLiteral (PrimChar c) = [c]
+translateLiteral (PrimString c) = c
 
 readDataType :: [ParseDeclTree] -> Either String [DataType]
 readDataType = sequence . mapMaybe parseData
