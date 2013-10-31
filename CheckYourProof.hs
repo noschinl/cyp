@@ -279,15 +279,6 @@ apply t@(Application f a) eq =
     ++ map (Application f) (apply a eq)
 apply t eq = maybeToList $ apply_top t eq
 
-edit :: Cyp -> [(Cyp, Cyp)] -> Cyp
-edit (Application cypcurry cyp) x = Application (edit cypcurry x) (edit cyp x)
-edit (Const a) _ = (Const a)
-edit (Literal a) _ = (Literal a)
-edit (Variable a) x = extract (lookup (Variable a) x)
-	where
-		extract (Just n) = n
-		extract (Nothing) = (Variable a)
-
 printProp :: Prop -> String
 printProp (Prop l r) = printInfo l ++ " = " ++ printInfo r
 
@@ -403,7 +394,7 @@ goalLookup _ _ _  x = ([], [x], [])
 
 parseLastStep :: Cyp -> Cyp -> String -> Cyp -> [Cyp]
 parseLastStep (Variable n) m over last
-	| over == n =  [edit last [(Variable n, m)]]
+    | over == n =  [subst last [(n, m)]]
     | otherwise = []
 parseLastStep (Literal _) _ _ _ = []
 parseLastStep (Const _) _ _ _ = []
