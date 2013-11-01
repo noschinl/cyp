@@ -237,8 +237,7 @@ makeSteps :: [Prop] -> [Cyp] -> Either String ()
 makeSteps rules (x:y:steps)
     | y `elem` rewriteAll x rules = makeSteps rules (y:steps)
     | otherwise = Left $ "(nmr) No matching rule: step " ++ printInfo x ++ " to " ++ printInfo  y
-makeSteps _ [_] = return ()
-makeSteps _ _ = Left $ "Error"
+makeSteps _ _ = return ()
 
 match :: Cyp -> Cyp -> [(String, Cyp)] -> Maybe [(String, Cyp)]
 match (Application f a) (Application f' a') s = match f f' s >>= match a a'
