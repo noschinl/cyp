@@ -173,9 +173,13 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
     cases <- validateCases dt casesRaw
     traverse_ (check dt over) cases
   where
-    check sdt over cas = case makeProof prop (snd cas) over sdt (axioms env) of
-        Right x -> Right x
-        Left x -> Left $ "Error in case '" ++ (fst cas) ++ "' " ++ x
+    lookupCons name (DataType _ conss) = maybe (Left $ "Invalid case '" ++ name ++ "'") Right $
+        find (\c -> fst c == name) conss >>= return . snd
+    check sdt over cas = do
+        cons <- lookupCons (fst cas) sdt
+        case makeProof prop (snd cas) over cons (axioms env) of
+            Right x -> Right x
+            Left x -> Left $ "Error in case '" ++ (fst cas) ++ "' " ++ x
 
     validateDatatype name = case find (\dt -> getDtName dt == name) (datatypes env) of
         Nothing -> Left $  "Invalid datatype '" ++ name ++ "'. Expected one of "
@@ -206,11 +210,11 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
     getDtConss (DataType _ conss) = conss
     getDtName (DataType n _) = n
 
-makeProof :: Prop -> [Cyp] -> String -> DataType -> [Prop] -> Either String ()
-makeProof prop step over (DataType _ datatype) rules = do
-    (newlemma, static) <- mapFirstStep prop step over datatype
+makeProof :: Prop -> [Cyp] -> String -> TCyp -> [Prop] -> Either String ()
+makeProof prop step over cons rules = do
+    (indHyps, static) <- mapFirstStep prop step over cons
     -- XXX: get rid of makeSteps
-    makeSteps (rules ++ newlemma) (map (\x -> transformVarToConstList x static) step)
+    makeSteps (indHyps ++ rules) (map (\x -> transformVarToConstList x static) step)
   where
     transformVarToConstList :: Cyp -> [Cyp] -> Cyp
     transformVarToConstList cyp cs = subst cyp f
@@ -298,14 +302,14 @@ getGoal maybeGoal@(TConst a) goal
     | maybeGoal == goal = TRec
     | otherwise = TConst a
 
-mapFirstStep :: Prop -> [Cyp] -> String -> [(String, TCyp)] -> Either String ([Prop], [Cyp])
-mapFirstStep prop step over goals = do
+mapFirstStep :: Prop -> [Cyp] -> String -> TCyp -> Either String ([Prop], [Cyp])
+mapFirstStep prop step over cons = do
     inst <- maybe (Left "Equations do not match induction hypothesis") Right $
         matchInductVar prop over $ Prop (head step) (last step)
-    let (fmg, _, tmg) = unzip3 $ map (\(y,x) -> goalLookup x inst over (y,x)) goals
+    (fmg, tmg) <- goalLookup cons inst
     return
-        ( map (\x -> mapProp (\y -> createNewLemmata y over x) prop) (concat fmg)
-        , concat tmg
+        ( map (\x -> mapProp (\y -> createNewLemmata y over x) prop) fmg
+        , tmg
         )
 
 matchInductVar :: Prop -> String -> Prop -> Maybe Cyp
@@ -315,19 +319,15 @@ matchInductVar pat over prop = do
     lookup over s
   where instOnly x = all (\(var,inst) -> var == x || Variable var == inst)
 
-goalLookup :: TCyp -> Cyp -> String -> (String, TCyp) -> ([Cyp], [(String, TCyp)], [Cyp])
-goalLookup (TApplication tcypcurry tcyp) (Application cypcurry cyp) over x 
-	| length  (sgl ++ scgl) == 0 = (fgl ++ fcgl, sgl ++ scgl, tgl ++ tcgl)
-	| otherwise = ([], [], [])
-	where
-		(fgl, sgl, tgl) = goalLookup tcyp cyp over x
-		(fcgl, scgl, tcgl) = goalLookup tcypcurry cypcurry over x
-goalLookup (TConst a) (Const b) _ x 
-	| a == b = ([], [], [])
-	| otherwise = ([], [x], [])
-goalLookup (TNRec _) (Variable b) _ _ = ([], [], [Variable b])
-goalLookup (TRec) b _ _ = ([b], [], [b])
-goalLookup _ _ _  x = ([], [x], [])
+goalLookup :: TCyp -> Cyp -> Either String ([Cyp], [Cyp])
+goalLookup (TApplication tf ta) (Application f a) = do
+    (fglA, tglA) <- goalLookup ta a
+    (fglF, tglF) <- goalLookup tf f
+    return (fglA ++ fglF, tglA ++ tglF)
+goalLookup (TConst tc) (Const c) = if tc == c then return ([], []) else Left "Equations and case do not match"
+goalLookup (TNRec _) v@(Variable _) = return ([], [v])
+goalLookup (TRec) c = return ([c], [c])
+goalLookup _ _ = Left "Equations and case do not match"
 
 createNewLemmata :: Cyp -> String -> Cyp -> Cyp
 createNewLemmata (Application cypcurry cyp) over b =  Application (createNewLemmata cypcurry over b) (createNewLemmata cyp over b)
