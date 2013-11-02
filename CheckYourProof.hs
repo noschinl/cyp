@@ -165,21 +165,27 @@ checkProofs env (l@(ParseLemma prop _) : ls) = do
     checkProof env l
     checkProofs (env { axioms = prop : axioms env}) ls
 
+mapLeft :: (a -> b) -> Either a c -> Either b c
+mapLeft f = either (Left . f) Right
+
 checkProof :: Env -> ParseLemma -> Either String ()
 checkProof env (ParseLemma prop (ParseEquation eqns)) = validEquationProof (axioms env) eqns prop
 checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
     dt <- validateDatatype dtRaw
     over <- validateOver overRaw
-    cases <- validateCases dt casesRaw
-    traverse_ (check dt over) cases
+    validateCases dt over casesRaw
   where
     lookupCons name (DataType _ conss) = maybe (Left $ "Invalid case '" ++ name ++ "'") Right $
         find (\c -> fst c == name) conss >>= return . snd
-    check sdt over cas = do
-        cons <- lookupCons (fst cas) sdt
-        case makeProof prop (snd cas) over cons (axioms env) of
-            Right x -> Right x
-            Left x -> Left $ "Error in case '" ++ (fst cas) ++ "' " ++ x
+
+    validateCase dt over (name, steps) = mapLeft (\x -> "Error in case '" ++ name ++"':\n    " ++ x) $do
+        cons <- lookupCons name dt
+        (indHyps, fixVars) <- mapFirstStep prop steps over cons
+        validEquations (indHyps ++ axioms env) $ map (\x -> transformVarToConstList x fixVars) steps
+
+    transformVarToConstList :: Cyp -> [Cyp] -> Cyp
+    transformVarToConstList cyp cs = subst cyp f
+      where f = mapMaybe (\x -> case x of { Variable v -> Just (v, Const v); _ -> Nothing }) cs
 
     validateDatatype name = case find (\dt -> getDtName dt == name) (datatypes env) of
         Nothing -> Left $  "Invalid datatype '" ++ name ++ "'. Expected one of "
@@ -194,30 +200,17 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
             Variable v -> return v
             _ -> Left $ "Variable '" ++ text ++ "' is not a valid induction variable"
 
-    validateCases dt cases = do
+    validateCases dt over cases = do
         case missingCase of
-            Nothing -> return cases
+            Nothing -> return ()
             Just (name, _) -> Left $ "Missing case '" ++ name ++ "'"
-        case invalidCase of
-            Nothing -> return cases
-            Just name -> Left $ "Invalid case '" ++ name ++ "'"
+        traverse_ (validateCase dt over) cases
       where
-        conss = getDtConss dt
         caseNames = map fst cases
-        missingCase = find (\(name, _) -> name `notElem` caseNames) conss
-        invalidCase = find (\name -> all (\cons -> fst cons /= name ) conss) caseNames
+        missingCase = find (\(name, _) -> name `notElem` caseNames) (getDtConss conss)
 
     getDtConss (DataType _ conss) = conss
     getDtName (DataType n _) = n
-
-makeProof :: Prop -> [Cyp] -> String -> TCyp -> [Prop] -> Either String ()
-makeProof prop step over cons rules = do
-    (indHyps, static) <- mapFirstStep prop step over cons
-    validEquations (indHyps ++ rules) (map (\x -> transformVarToConstList x static) step)
-  where
-    transformVarToConstList :: Cyp -> [Cyp] -> Cyp
-    transformVarToConstList cyp cs = subst cyp f
-      where f = mapMaybe (\x -> case x of { Variable v -> Just (v, Const v); _ -> Nothing }) cs
 
 validEquations :: [Prop] -> [Cyp] -> Either String ()
 validEquations _ [] = Left "Empty equation sequence"
