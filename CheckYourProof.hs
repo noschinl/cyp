@@ -290,10 +290,10 @@ mapFirstStep :: Prop -> [Cyp] -> String -> TCyp -> Either String ([Prop], [Cyp])
 mapFirstStep prop step over cons = do
     inst <- maybe (Left "Equations do not match induction hypothesis") Right $
         matchInductVar prop over $ Prop (head step) (last step)
-    (fmg, tmg) <- goalLookup cons inst
+    (recVars, nonrecVars) <- goalLookup cons inst
     return
-        ( map (\x -> mapProp (\y -> createNewLemmata y over x) prop) fmg
-        , tmg
+        ( map (\x -> mapProp (\y -> createNewLemmata y over x) prop) recVars
+        , recVars ++ nonrecVars
         )
 
 matchInductVar :: Prop -> String -> Prop -> Maybe Cyp
@@ -305,12 +305,12 @@ matchInductVar pat over prop = do
 
 goalLookup :: TCyp -> Cyp -> Either String ([Cyp], [Cyp])
 goalLookup (TApplication tf ta) (Application f a) = do
-    (fglA, tglA) <- goalLookup ta a
-    (fglF, tglF) <- goalLookup tf f
-    return (fglA ++ fglF, tglA ++ tglF)
+    (recVarsA, nonrecVarsA) <- goalLookup ta a
+    (recVarsF, nonrecVarsF) <- goalLookup tf f
+    return (recVarsA ++ recVarsF, nonrecVarsA ++ nonrecVarsF)
 goalLookup (TConst tc) (Const c) = if tc == c then return ([], []) else Left "Equations and case do not match"
 goalLookup (TNRec _) v@(Variable _) = return ([], [v])
-goalLookup (TRec) c = return ([c], [c])
+goalLookup (TRec) c = return ([c], [])
 goalLookup _ _ = Left "Equations and case do not match"
 
 createNewLemmata :: Cyp -> String -> Cyp -> Cyp
