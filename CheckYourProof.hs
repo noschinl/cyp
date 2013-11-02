@@ -213,8 +213,7 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
 makeProof :: Prop -> [Cyp] -> String -> TCyp -> [Prop] -> Either String ()
 makeProof prop step over cons rules = do
     (indHyps, static) <- mapFirstStep prop step over cons
-    -- XXX: get rid of makeSteps
-    makeSteps (indHyps ++ rules) (map (\x -> transformVarToConstList x static) step)
+    validEquations (indHyps ++ rules) (map (\x -> transformVarToConstList x static) step)
   where
     transformVarToConstList :: Cyp -> [Cyp] -> Cyp
     transformVarToConstList cyp cs = subst cyp f
@@ -234,14 +233,6 @@ validEquationProof rules eqns aim = do
     if proved == aim
         then Right ()
         else Left ("Proved proposition does not match goal:\n" ++ printProp proved ++ "\nvs.\n" ++ printProp aim)
-
-
-
-makeSteps :: [Prop] -> [Cyp] -> Either String ()
-makeSteps rules (x:y:steps)
-    | y `elem` rewriteAll x rules = makeSteps rules (y:steps)
-    | otherwise = Left $ "(nmr) No matching rule: step " ++ printInfo x ++ " to " ++ printInfo  y
-makeSteps _ _ = return ()
 
 match :: Cyp -> Cyp -> [(String, Cyp)] -> Maybe [(String, Cyp)]
 match (Application f a) (Application f' a') s = match f f' s >>= match a a'
