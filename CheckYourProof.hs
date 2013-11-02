@@ -207,7 +207,7 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
         traverse_ (validateCase dt over) cases
       where
         caseNames = map fst cases
-        missingCase = find (\(name, _) -> name `notElem` caseNames) (getDtConss conss)
+        missingCase = find (\(name, _) -> name `notElem` caseNames) (getDtConss dt)
 
     getDtConss (DataType _ conss) = conss
     getDtName (DataType n _) = n
