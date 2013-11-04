@@ -183,9 +183,8 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
         (indHyps, fixVars) <- computeIndHyps prop steps over cons
         validEquations (indHyps ++ axioms env) $ map (\x -> transformVarToConstList x fixVars) steps
 
-    transformVarToConstList :: Cyp -> [Cyp] -> Cyp
-    transformVarToConstList cyp cs = subst cyp f
-      where f = mapMaybe (\x -> case x of { Variable v -> Just (v, Const v); _ -> Nothing }) cs
+    transformVarToConstList :: Cyp -> [String] -> Cyp
+    transformVarToConstList cyp = subst cyp . map (\x -> (x, Const x))
 
     validateDatatype name = case find (\dt -> getDtName dt == name) (datatypes env) of
         Nothing -> Left $  "Invalid datatype '" ++ name ++ "'. Expected one of "
@@ -272,7 +271,7 @@ printInfo (Literal a) = translateLiteral a
 printInfo (Variable a) = "?" ++ a
 printInfo (Const a) = a
 
-computeIndHyps :: Prop -> [Cyp] -> String -> TCyp -> Either String ([Prop], [Cyp])
+computeIndHyps :: Prop -> [Cyp] -> String -> TCyp -> Either String ([Prop], [String])
 computeIndHyps prop step over cons = do
     inst <- maybe (Left "Equations do not match induction hypothesis") Right $
         matchInductVar prop over $ Prop (head step) (last step)
@@ -281,7 +280,7 @@ computeIndHyps prop step over cons = do
     when (nub instVars /= instVars) $
         Left "The induction variables must be distinct!"
     return
-        ( map (\x -> mapProp (\y -> createNewLemmata y over x) prop) recVars
+        ( map (\x -> mapProp (\y -> createNewLemmata y over x) prop) (map Variable recVars)
         , instVars
         )
 
@@ -292,14 +291,14 @@ matchInductVar pat over prop = do
     lookup over s
   where instOnly x = all (\(var,inst) -> var == x || Variable var == inst)
 
-matchInstWithCons :: TCyp -> Cyp -> Either String ([Cyp], [Cyp])
+matchInstWithCons :: TCyp -> Cyp -> Either String ([String], [String])
 matchInstWithCons (TApplication tf ta) (Application f a) = do
     (recVarsA, nonrecVarsA) <- matchInstWithCons ta a
     (recVarsF, nonrecVarsF) <- matchInstWithCons tf f
     return (recVarsA ++ recVarsF, nonrecVarsA ++ nonrecVarsF)
 matchInstWithCons (TConst tc) (Const c) = if tc == c then return ([], []) else Left "Equations and case do not match"
-matchInstWithCons (TVariable _) v@(Variable _) = return ([], [v])
-matchInstWithCons (TRec) v@(Variable _) = return ([v], [])
+matchInstWithCons (TVariable _) (Variable v) = return ([], [v])
+matchInstWithCons TRec (Variable v) = return ([v], [])
 matchInstWithCons tcyp cyp = Left $ "Equations and case do not match: " ++ show tcyp ++ " vs. " ++ show cyp
 
 createNewLemmata :: Cyp -> String -> Cyp -> Cyp
