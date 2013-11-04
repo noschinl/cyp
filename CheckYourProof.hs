@@ -98,7 +98,7 @@ data Lemma = Lemma Prop Proof -- Proposition (_ = _), Proof
 data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Literal
     deriving (Show, Eq)
 
-data TCyp = TApplication TCyp TCyp | TConst String | TNRec String | TRec
+data TCyp = TApplication TCyp TCyp | TConst String | TVariable String | TRec
     deriving (Show, Eq)
 
 
@@ -279,7 +279,7 @@ getGoal :: TCyp -> TCyp -> TCyp
 getGoal maybeGoal@(TApplication cypCurry cyp) goal
     | maybeGoal == goal = TRec
     | otherwise = TApplication (getGoal cypCurry goal) (getGoal cyp goal)
-getGoal (TNRec a) _ = TNRec a
+getGoal (TVariable a) _ = TVariable a
 getGoal maybeGoal@(TConst a) goal
     | maybeGoal == goal = TRec
     | otherwise = TConst a
@@ -310,7 +310,7 @@ matchInstWithCons (TApplication tf ta) (Application f a) = do
     (recVarsF, nonrecVarsF) <- matchInstWithCons tf f
     return (recVarsA ++ recVarsF, nonrecVarsA ++ nonrecVarsF)
 matchInstWithCons (TConst tc) (Const c) = if tc == c then return ([], []) else Left "Equations and case do not match"
-matchInstWithCons (TNRec _) v@(Variable _) = return ([], [v])
+matchInstWithCons (TVariable _) v@(Variable _) = return ([], [v])
 matchInstWithCons (TRec) c = return ([c], [])
 matchInstWithCons _ _ = Left "Equations and case do not match"
 
@@ -335,7 +335,7 @@ createNewLemmata (Literal a) _ _ = Literal a
 
 translateToTyp :: Cyp -> TCyp
 translateToTyp (Application cypcurry cyp) = TApplication (translateToTyp cypcurry) (translateToTyp cyp)
-translateToTyp (Variable a) = TNRec a
+translateToTyp (Variable a) = TVariable a
 translateToTyp (Const a) = TConst a
 
 getConstructorName :: TCyp -> String
