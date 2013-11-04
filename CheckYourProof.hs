@@ -299,7 +299,7 @@ matchInstWithCons (TApplication tf ta) (Application f a) = do
     return (recVarsA ++ recVarsF, nonrecVarsA ++ nonrecVarsF)
 matchInstWithCons (TConst tc) (Const c) = if tc == c then return ([], []) else Left "Equations and case do not match"
 matchInstWithCons (TVariable _) v@(Variable _) = return ([], [v])
-matchInstWithCons (TRec) c = return ([c], [])
+matchInstWithCons (TRec) v@(Variable _) = return ([v], [])
 matchInstWithCons tcyp cyp = Left $ "Equations and case do not match: " ++ show tcyp ++ " vs. " ++ show cyp
 
 createNewLemmata :: Cyp -> String -> Cyp -> Cyp
