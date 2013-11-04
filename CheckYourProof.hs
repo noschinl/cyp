@@ -193,9 +193,7 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
         Just dt -> Right dt
 
     validateOver text = do
-        exp <- iparseExp baseParseMode text
-        -- XXX: We should take the constant list into account?
-        cyp <- translate (Right . Variable) exp
+        cyp <- iparseCyp env text
         case cyp of
             Variable v -> return v
             _ -> Left $ "Variable '" ++ text ++ "' is not a valid induction variable"
