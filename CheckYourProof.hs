@@ -388,7 +388,7 @@ readDataType :: [ParseDeclTree] -> Either String [DataType]
 readDataType = sequence . mapMaybe parseData
   where
     parseData (DataDecl s) = Just $ do
-        (tycon : dacons) <- traverse parseCons $ splitStringAt "=|" (trim s) [] -- XXX: trim necessary?
+        (tycon : dacons) <- traverse parseCons $ splitStringAt "=|" s []
         return $ DataType (getConstructorName tycon) (getGoals dacons tycon)
     parseData _ = Nothing
 
