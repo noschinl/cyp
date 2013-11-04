@@ -265,15 +265,6 @@ rewriteAll :: Cyp -> [Prop] -> [Cyp]
 rewriteAll cyp rules = cyp : concatMap (rewrite cyp) rules'
     where rules' = rules ++ map (\(Prop l r) -> Prop r l) rules
 
-printProp :: Prop -> String
-printProp (Prop l r) = printInfo l ++ " = " ++ printInfo r
-
-printInfo :: Cyp -> String
-printInfo (Application cypCurry cyp) = "((" ++ (printInfo cypCurry) ++ ") " ++ (printInfo cyp) ++ ")"
-printInfo (Literal a) = translateLiteral a
-printInfo (Variable a) = "?" ++ a
-printInfo (Const a) = a
-
 computeIndHyps :: Prop -> [Cyp] -> String -> TCyp -> Either String ([Prop], [String])
 computeIndHyps prop step over cons = do
     inst <- maybe (Left "Equations do not match induction hypothesis") Right $
@@ -302,6 +293,17 @@ computeIndHyps prop step over cons = do
     matchInstWithCons (TVariable _) (Variable v) = return ([], [v])
     matchInstWithCons TRec (Variable v) = return ([v], [])
     matchInstWithCons tcyp cyp = Left $ "Equations and case do not match: " ++ show tcyp ++ " vs. " ++ show cyp
+
+{- Pretty printing --------------------------------------------------}
+
+printProp :: Prop -> String
+printProp (Prop l r) = printInfo l ++ " = " ++ printInfo r
+
+printInfo :: Cyp -> String
+printInfo (Application cypCurry cyp) = "((" ++ (printInfo cypCurry) ++ ") " ++ (printInfo cyp) ++ ")"
+printInfo (Literal a) = translateLiteral a
+printInfo (Variable a) = "?" ++ a
+printInfo (Const a) = a
 
 
 {- Parse inner syntax -----------------------------------------------}
