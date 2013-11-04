@@ -59,7 +59,7 @@ type VariableList = [String]
 
 data ParseDeclTree
     = DataDecl String
-    | SymDecl String -- Symbol (, Arity)
+    | SymDecl String
     | Axiom String
     | FunDef String
     deriving Show
