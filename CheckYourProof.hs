@@ -291,9 +291,12 @@ mapFirstStep prop step over cons = do
     inst <- maybe (Left "Equations do not match induction hypothesis") Right $
         matchInductVar prop over $ Prop (head step) (last step)
     (recVars, nonrecVars) <- matchInstWithCons cons inst
+    let instVars = recVars ++ nonrecVars
+    when (nub instVars /= instVars) $
+        Left "The induction variables must be distinct!"
     return
         ( map (\x -> mapProp (\y -> createNewLemmata y over x) prop) recVars
-        , recVars ++ nonrecVars
+        , instVars
         )
 
 matchInductVar :: Prop -> String -> Prop -> Maybe Cyp
