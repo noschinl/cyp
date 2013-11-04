@@ -279,7 +279,7 @@ getGoal :: TCyp -> TCyp -> TCyp
 getGoal maybeGoal@(TApplication cypCurry cyp) goal
     | maybeGoal == goal = TRec
     | otherwise = TApplication (getGoal cypCurry goal) (getGoal cyp goal)
-getGoal (TNRec a) goal = TNRec a
+getGoal (TNRec a) _ = TNRec a
 getGoal maybeGoal@(TConst a) goal
     | maybeGoal == goal = TRec
     | otherwise = TConst a
@@ -431,14 +431,14 @@ readFunc syms pds = do
     listComb = foldl Application
 
     declToProp :: [String] -> (String, [Exts.Pat], Exts.Exp) -> Either String Prop
-    declToProp syms (funSym, pats, rawRhs) = do
+    declToProp consts (funSym, pats, rawRhs) = do
         tPat <- traverse translatePat pats
         rhs <- translate tv rawRhs
         return $ Prop (listComb (Const funSym) tPat) rhs
       where
         pvars = concatMap collectPVars pats
         tv s | s `elem` pvars = Right $ Variable s
-             | s `elem` syms = Right $ Const s -- XXX Strange?
+             | s `elem` consts = Right $ Const s -- XXX Strange?
              | otherwise = Left $ "Unbound variable '" ++ s ++ "' not allowed on rhs"
 
     collectPVars :: Exts.Pat -> [String]
@@ -483,7 +483,7 @@ iparseCypWithMode :: ParseMode -> Env -> String -> Either String Cyp
 iparseCypWithMode mode env s = do
     p <- iparseExp mode s
     translate tv p
-  where tv s = Right $ if s `elem` constants env then Const s else Variable s
+  where tv x = Right $ if x `elem` constants env then Const x else Variable x
 
 iparseCyp :: Env -> String -> Either String Cyp
 iparseCyp = iparseCypWithMode baseParseMode
