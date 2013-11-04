@@ -399,7 +399,7 @@ readDataType = sequence . mapMaybe parseDataType
 readAxiom :: [String] -> [ParseDeclTree] -> Either String [Prop]
 readAxiom consts = sequence . mapMaybe parseAxiom
   where
-    parseAxiom (Axiom s) = Just $ iparseProp env $ trim s -- XXX: trim needed?
+    parseAxiom (Axiom s) = Just $ iparseProp env s
     parseAxiom _ = Nothing
 
     env = Env { datatypes = [], constants = consts, axioms = [] }
