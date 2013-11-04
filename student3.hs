@@ -1,3 +1,4 @@
+-- MUST FAIL, as x:x is not a valid instantiation for case ":"
 Lemma: length (reverse ys) .=. length ys
 
 Proof by induction on List ys

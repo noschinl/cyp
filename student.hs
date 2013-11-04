@@ -18,7 +18,7 @@ Case :
 
     length (x:xs)
     .=. length (xs ++ [x])
-    .=. length xs + length (x : [])
+    .=. length xs + length [x]
 {-After Hier darf kein C sein _ase-}
 QED
 {-Between Lemma 
