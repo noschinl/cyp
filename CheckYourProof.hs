@@ -284,23 +284,24 @@ computeIndHyps prop step over cons = do
         Left "The induction variables must be distinct!"
     let indHyps = map (\v -> substProp prop [(over, Const v)]) recVars
     return (indHyps, instVars)
+  where
+    matchInductVar :: Prop -> String -> Prop -> Maybe Cyp
+    matchInductVar pat over prop = do
+        s <- matchProp prop pat []
+        guard $ instOnly over s
+        lookup over s
+      where instOnly x = all (\(var,inst) -> var == x || Variable var == inst)
 
-matchInductVar :: Prop -> String -> Prop -> Maybe Cyp
-matchInductVar pat over prop = do
-    s <- matchProp prop pat []
-    guard $ instOnly over s
-    lookup over s
-  where instOnly x = all (\(var,inst) -> var == x || Variable var == inst)
-
-matchInstWithCons :: TCyp -> Cyp -> Either String ([String], [String])
-matchInstWithCons (TApplication tf ta) (Application f a) = do
-    (recVarsA, nonrecVarsA) <- matchInstWithCons ta a
-    (recVarsF, nonrecVarsF) <- matchInstWithCons tf f
-    return (recVarsA ++ recVarsF, nonrecVarsA ++ nonrecVarsF)
-matchInstWithCons (TConst tc) (Const c) = if tc == c then return ([], []) else Left "Equations and case do not match"
-matchInstWithCons (TVariable _) (Variable v) = return ([], [v])
-matchInstWithCons TRec (Variable v) = return ([v], [])
-matchInstWithCons tcyp cyp = Left $ "Equations and case do not match: " ++ show tcyp ++ " vs. " ++ show cyp
+    matchInstWithCons :: TCyp -> Cyp -> Either String ([String], [String])
+    matchInstWithCons (TApplication tf ta) (Application f a) = do
+        (recVarsA, nonrecVarsA) <- matchInstWithCons ta a
+        (recVarsF, nonrecVarsF) <- matchInstWithCons tf f
+        return (recVarsA ++ recVarsF, nonrecVarsA ++ nonrecVarsF)
+    matchInstWithCons (TConst tc) (Const c) =
+        if tc == c then return ([], []) else Left "Equations and case do not match"
+    matchInstWithCons (TVariable _) (Variable v) = return ([], [v])
+    matchInstWithCons TRec (Variable v) = return ([v], [])
+    matchInstWithCons tcyp cyp = Left $ "Equations and case do not match: " ++ show tcyp ++ " vs. " ++ show cyp
 
 
 {- Parse inner syntax -----------------------------------------------}
