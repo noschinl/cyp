@@ -247,6 +247,9 @@ subst (Variable v) s = case lookup v s of
       Just t -> t
 subst t _ = t
 
+substProp :: Prop -> [(String, Cyp)] -> Prop
+substProp prop s = mapProp (\c -> subst c s) prop
+
 rewriteTop :: Cyp -> Prop -> Maybe Cyp
 rewriteTop t (Prop lhs rhs) = fmap (subst rhs) $ match t lhs []
 
@@ -279,10 +282,8 @@ computeIndHyps prop step over cons = do
     let instVars = recVars ++ nonrecVars
     when (nub instVars /= instVars) $
         Left "The induction variables must be distinct!"
-    return
-        ( map (\x -> mapProp (\y -> createNewLemmata y over x) prop) (map Variable recVars)
-        , instVars
-        )
+    let indHyps = map (\v -> substProp prop [(over, Const v)]) recVars
+    return (indHyps, instVars)
 
 matchInductVar :: Prop -> String -> Prop -> Maybe Cyp
 matchInductVar pat over prop = do
@@ -300,22 +301,6 @@ matchInstWithCons (TConst tc) (Const c) = if tc == c then return ([], []) else L
 matchInstWithCons (TVariable _) (Variable v) = return ([], [v])
 matchInstWithCons TRec (Variable v) = return ([v], [])
 matchInstWithCons tcyp cyp = Left $ "Equations and case do not match: " ++ show tcyp ++ " vs. " ++ show cyp
-
-createNewLemmata :: Cyp -> String -> Cyp -> Cyp
-createNewLemmata (Application cypcurry cyp) over b =  Application (createNewLemmata cypcurry over b) (createNewLemmata cyp over b)
-createNewLemmata (Variable a) over (Const b) 
-	| over == a = Const b
-	| otherwise = Variable a
-createNewLemmata (Variable a) over (Variable b) 
-	| over == a = Const b
-	| otherwise = Variable a
-createNewLemmata (Const a) over (Const b) 
-	| over == a = Const b
-	| otherwise = Const a
-createNewLemmata (Const a) over (Variable b) 
-	| over == a = Const b
-	| otherwise = Const a
-createNewLemmata (Literal a) _ _ = Literal a
 
 
 {- Parse inner syntax -----------------------------------------------}
