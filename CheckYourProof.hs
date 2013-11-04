@@ -180,7 +180,7 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
 
     validateCase dt over (name, steps) = mapLeft (\x -> "Error in case '" ++ name ++"':\n    " ++ x) $do
         cons <- lookupCons name dt
-        (indHyps, fixVars) <- mapFirstStep prop steps over cons
+        (indHyps, fixVars) <- computeIndHyps prop steps over cons
         validEquations (indHyps ++ axioms env) $ map (\x -> transformVarToConstList x fixVars) steps
 
     transformVarToConstList :: Cyp -> [Cyp] -> Cyp
@@ -272,8 +272,8 @@ printInfo (Literal a) = translateLiteral a
 printInfo (Variable a) = "?" ++ a
 printInfo (Const a) = a
 
-mapFirstStep :: Prop -> [Cyp] -> String -> TCyp -> Either String ([Prop], [Cyp])
-mapFirstStep prop step over cons = do
+computeIndHyps :: Prop -> [Cyp] -> String -> TCyp -> Either String ([Prop], [Cyp])
+computeIndHyps prop step over cons = do
     inst <- maybe (Left "Equations do not match induction hypothesis") Right $
         matchInductVar prop over $ Prop (head step) (last step)
     (recVars, nonrecVars) <- matchInstWithCons cons inst
@@ -300,7 +300,7 @@ matchInstWithCons (TApplication tf ta) (Application f a) = do
 matchInstWithCons (TConst tc) (Const c) = if tc == c then return ([], []) else Left "Equations and case do not match"
 matchInstWithCons (TVariable _) v@(Variable _) = return ([], [v])
 matchInstWithCons (TRec) c = return ([c], [])
-matchInstWithCons _ _ = Left "Equations and case do not match"
+matchInstWithCons tcyp cyp = Left $ "Equations and case do not match: " ++ show tcyp ++ " vs. " ++ show cyp
 
 createNewLemmata :: Cyp -> String -> Cyp -> Cyp
 createNewLemmata (Application cypcurry cyp) over b =  Application (createNewLemmata cypcurry over b) (createNewLemmata cyp over b)
