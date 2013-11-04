@@ -272,18 +272,6 @@ printInfo (Literal a) = translateLiteral a
 printInfo (Variable a) = "?" ++ a
 printInfo (Const a) = a
 
-getGoals :: [TCyp] -> TCyp -> [(String, TCyp)]
-getGoals xs goal = map (\x -> (getConstructorName x, getGoal x goal)) xs
-
-getGoal :: TCyp -> TCyp -> TCyp
-getGoal maybeGoal@(TApplication cypCurry cyp) goal
-    | maybeGoal == goal = TRec
-    | otherwise = TApplication (getGoal cypCurry goal) (getGoal cyp goal)
-getGoal (TVariable a) _ = TVariable a
-getGoal maybeGoal@(TConst a) goal
-    | maybeGoal == goal = TRec
-    | otherwise = TConst a
-
 mapFirstStep :: Prop -> [Cyp] -> String -> TCyp -> Either String ([Prop], [Cyp])
 mapFirstStep prop step over cons = do
     inst <- maybe (Left "Equations do not match induction hypothesis") Right $
@@ -385,18 +373,27 @@ translateLiteral (PrimChar c) = [c]
 translateLiteral (PrimString c) = c
 
 readDataType :: [ParseDeclTree] -> Either String [DataType]
-readDataType = sequence . mapMaybe parseData
+readDataType = sequence . mapMaybe parseDataType
   where
-    parseData (DataDecl s) = Just $ do
+    parseDataType (DataDecl s) = Just $ do
         (tycon : dacons) <- traverse parseCons $ splitStringAt "=|" s []
-        return $ DataType (getConstructorName tycon) (getGoals dacons tycon)
-    parseData _ = Nothing
+        dacons' <- traverse (parseDacon tycon) dacons
+        let daNames = map getConstructorName dacons
+        return $ DataType (getConstructorName tycon) (daNames `zip` dacons')
+    parseDataType _ = Nothing
 
     parseCons :: String -> Either String TCyp
     parseCons s = do
         e <- iparseExp baseParseMode s
         cyp <- translate (Right . Variable) e
         return $ translateToTyp cyp
+
+    parseDacon :: TCyp -> TCyp -> Either String TCyp
+    parseDacon _ TRec = Left $ "Raw data constructor already contains TRec. Please contact author!"
+    parseDacon tycon tcyp | tcyp == tycon = return TRec
+    parseDacon tycon (TApplication tf ta) =
+        liftM2 TApplication (parseDacon tycon tf) (parseDacon tycon ta)
+    parseDacon _ t = return $ t
 
 
 readAxiom :: [String] -> [ParseDeclTree] -> Either String [Prop]
