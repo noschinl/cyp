@@ -308,12 +308,6 @@ printInfo (Const a) = a
 
 {- Parse inner syntax -----------------------------------------------}
 
-getConstList :: (ConstList, VariableList) -> ConstList
-getConstList (cons ,_) = cons
-
-getVariableList :: (ConstList, VariableList) -> VariableList
-getVariableList (_, var) = var
-
 translate :: (String -> Either String Cyp) -> Exp -> Either String Cyp
 translate f (Var v) = f $ translateQName v
 translate _ (Con c) = Right $ Const $ translateQName c
