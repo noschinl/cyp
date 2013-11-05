@@ -254,7 +254,7 @@ match t (Variable v) s = case lookup v s of
 match _ _ _ = Nothing
 
 matchProp :: Prop -> Prop -> [(String, Cyp)] -> Maybe [(String, Cyp)]
-matchProp (Prop l r) (Prop l' r') s = match l l' s >>= match r r'
+matchProp (Prop l r) (Prop l' r') = match l l' >=> match r r'
 
 subst :: Cyp -> [(String, Cyp)] -> Cyp
 subst (Application f a) s = Application (subst f s) (subst a s)
@@ -322,7 +322,7 @@ readDataType = sequence . mapMaybe parseDataType
     parseDataType _ = Nothing
 
     parseCons :: String -> Either String Cyp
-    parseCons s = iparseExp baseParseMode s >>= translateExp (Right . Variable)
+    parseCons = iparseExp baseParseMode >=> translateExp (Right . Variable)
 
     constName (Const c) = return c
     constName cyp = Left $ "Term '" ++ show cyp ++ "' is not a constant."
@@ -486,9 +486,7 @@ iparseExp mode s = case parseExpWithMode mode s of
     f@(ParseFailed _ _) -> Left $ show f
 
 iparseCypWithMode :: ParseMode -> Env -> String -> Either String Cyp
-iparseCypWithMode mode env s = do
-    p <- iparseExp mode s
-    translateExp tv p
+iparseCypWithMode mode env = iparseExp mode >=> translateExp tv
   where tv x = Right $ if x `elem` constants env then Const x else Variable x
 
 iparseCyp :: Env -> String -> Either String Cyp
