@@ -208,7 +208,7 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
         Just dt -> Right dt
 
     validateOver text = do
-        cyp <- iparseCyp env text
+        cyp <- iparseCyp (defaultToVar env) text
         case cyp of
             Variable v -> return v
             _ -> Left $ "Variable '" ++ text ++ "' is not a valid induction variable"
@@ -322,7 +322,7 @@ readDataType = sequence . mapMaybe parseDataType
     parseDataType _ = Nothing
 
     parseCons :: String -> Either String Cyp
-    parseCons = iparseExp baseParseMode >=> translateExp (Right . Variable)
+    parseCons = iparseCyp (Right . Variable)
 
     constName (Const c) = return c
     constName cyp = Left $ "Term '" ++ show cyp ++ "' is not a constant."
@@ -350,7 +350,7 @@ readSym :: [ParseDeclTree] -> Either String [String]
 readSym = sequence . mapMaybe parseSym
   where
     parseSym (SymDecl s) = Just $ do
-        cyp <- iparseExp baseParseMode s >>= translateExp (Right . Const)
+        cyp <- iparseCyp (Right . Const) s
         case cyp of
             Const v -> Right v
             _ -> Left $ "Expression '" ++ s ++ "' is not a symbol"
@@ -480,26 +480,37 @@ translateName (Symbol s) = s
 
 {- Parser for the expression syntax ---------------------------------}
 
-iparseExp :: ParseMode -> String -> Either String Exp
-iparseExp mode s = case parseExpWithMode mode s of
-    ParseOk p -> Right p
-    f@(ParseFailed _ _) -> Left $ show f
+iparseCypRaw :: ParseMode -> (String -> Either String Cyp) -> String -> Either String Cyp
+iparseCypRaw mode f s = case parseExpWithMode mode s of
+    ParseOk p -> translateExp f p
+    x@(ParseFailed _ _) -> Left $ show x
 
-iparseCypWithMode :: ParseMode -> Env -> String -> Either String Cyp
-iparseCypWithMode mode env = iparseExp mode >=> translateExp tv
-  where tv x = Right $ if x `elem` constants env then Const x else Variable x
+defaultToVar :: Env -> String -> Either String Cyp
+defaultToVar env x = return $ if x `elem` constants env then Const x else Variable x
 
-iparseCyp :: Env -> String -> Either String Cyp
-iparseCyp = iparseCypWithMode baseParseMode
+checkHasPropEq :: Cyp -> Either String ()
+checkHasPropEq cyp = when (hasPropEq cyp) $
+    Left $ "A term may not include the equality symbol '" ++ symPropEq ++ "'."
+  where
+    hasPropEq (Application f a) = hasPropEq f || hasPropEq a
+    hasPropEq (Const c) | c == symPropEq = True
+    hasPropEq _ = False
 
+iparseCyp :: (String  -> Either String Cyp)-> String -> Either String Cyp
+iparseCyp f s = do
+    cyp <- iparseCypRaw baseParseMode f s
+    checkHasPropEq cyp
+    return cyp
 
 iparseProp :: Env -> String -> Either String Prop
 iparseProp env x = do
-    cyp <- iparseCypWithMode mode env' x
-    case cyp of
--- XXX: Exclude ".=." from inner terms ...
-        Application (Application (Const c) lhs) rhs | c == symPropEq -> Right $ Prop lhs rhs
+    cyp <- iparseCypRaw mode (defaultToVar env') x
+    (lhs, rhs) <- case cyp of
+        Application (Application (Const c) lhs) rhs | c == symPropEq -> Right (lhs, rhs)
         _ -> Left $ "Term '" ++ x ++ "' is not a proposition"
+    checkHasPropEq lhs
+    checkHasPropEq rhs
+    return $ Prop lhs rhs
   where
     env' = env { constants = symPropEq : constants env }
     mode = baseParseMode { fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol symPropEq) : baseFixities }
@@ -646,7 +657,7 @@ equationsParser = do
         l <- toEol
         ls <- many1 (try (manySpacesOrComment >> string symPropEq >> lineSpaces >> toEol))
         env <- getState
-        let eqs = map (iparseCyp env) (l : ls)
+        let eqs = map (iparseCyp $ defaultToVar env) (l : ls)
         toParsec fmt . sequence $ eqs
     fmt err = "Failed to parse expression: " ++ err
 
