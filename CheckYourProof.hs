@@ -318,15 +318,19 @@ translate :: (String -> Either String Cyp) -> Exp -> Either String Cyp
 translate f (Var v) = f $ translateQName v
 translate _ (Con c) = Right $ Const $ translateQName c
 translate _ (Lit l) = Right $ Literal l
-translate f (InfixApp e1 (QConOp i) e2) =
-    (Right $ Const $ translateQName i) `mApp` translate f e1 `mApp` translate f e2
-translate f (InfixApp e1 (QVarOp i) e2) =
-    (f $ translateQName i) `mApp` translate f e1 `mApp` translate f e2
+translate f (InfixApp e1 op e2) =
+    translateQOp f op `mApp` translate f e1 `mApp` translate f e2
 translate f (App e1 e2) = translate f e1 `mApp` translate f e2
 translate f (NegApp e) = return (Const "-") `mApp` translate f e
+translate f (LeftSection e op) = translateQOp f op `mApp` translate f e
 translate f (Paren e) = translate f e
 translate f (List l) = foldr (\e es -> Right (Const ":") `mApp` translate f e `mApp` es) (Right $ Const "[]") l
 translate _ e = Left $ "Unsupported expression syntax used: " ++ show e
+
+translateQOp :: (String -> Either String Cyp) -> QOp -> Either String Cyp
+translateQOp _ (QConOp op) = Right $ Const $ translateQName op
+translateQOp f (QVarOp op) = f $ translateQName op
+
 
 translateQName :: QName -> String
 translateQName (Qual (ModuleName m) (Ident n)) = m ++ "." ++ n
