@@ -395,7 +395,7 @@ readDataType = sequence . mapMaybe parseDataType
 readAxiom :: [String] -> [ParseDeclTree] -> Err [Prop]
 readAxiom consts = sequence . mapMaybe parseAxiom
   where
-    parseAxiom (Axiom s) = Just $ iparseProp env s
+    parseAxiom (Axiom s) = Just $ iparseProp (defaultToVar env) s
     parseAxiom _ = Nothing
 
     env = Env { datatypes = [], constants = consts, axioms = [] }
@@ -550,23 +550,23 @@ checkHasPropEq cyp = when (hasPropEq cyp) $
     hasPropEq (Const c) | c == symPropEq = True
     hasPropEq _ = False
 
-iparseCyp :: (String  -> Err Cyp)-> String -> Err Cyp
+iparseCyp :: (String -> Err Cyp)-> String -> Err Cyp
 iparseCyp f s = do
     cyp <- iparseCypRaw baseParseMode f s
     checkHasPropEq cyp
     return cyp
 
-iparseProp :: Env -> String -> Err Prop
-iparseProp env x = do
-    cyp <- iparseCypRaw mode (defaultToVar env') x
+iparseProp :: (String -> Err Cyp) -> String -> Err Prop
+iparseProp f s = do
+    cyp <- iparseCypRaw mode f' s
     (lhs, rhs) <- case cyp of
         Application (Application (Const c) lhs) rhs | c == symPropEq -> Right (lhs, rhs)
-        _ -> errStr $ "Term '" ++ x ++ "' is not a proposition"
+        _ -> errStr $ "Term '" ++ s ++ "' is not a proposition"
     checkHasPropEq lhs
     checkHasPropEq rhs
     return $ Prop lhs rhs
   where
-    env' = env { constants = symPropEq : constants env }
+    f' x = if x == symPropEq then return $ Const x else f x
     mode = baseParseMode { fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol symPropEq) : baseFixities }
 
 {- Parser for the outer syntax --------------------------------------}
@@ -662,7 +662,7 @@ propParser = do
     s <- trim <$> many (noneOf "\r\n")
     env <- getState
     let prop = errCtxtStr "Failed to parse expression" $
-            AProp s <$> iparseProp env s
+            AProp s <$> iparseProp (defaultToVar env) s
     toParsec show prop
 
 lemmaParser :: Parsec [Char] Env ParseLemma
