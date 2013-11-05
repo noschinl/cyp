@@ -135,6 +135,26 @@ mApp = liftM2 Application
 infixl 1 `mApp`
 infixl 1 `Application`
 
+match :: Cyp -> Cyp -> [(String, Cyp)] -> Maybe [(String, Cyp)]
+match (Application f a) (Application f' a') s = match f f' s >>= match a a'
+match (Literal a) (Literal b) s
+    | a == b = Just s
+    | otherwise = Nothing
+match (Const a) (Const b) s
+    | a == b = Just s
+    | otherwise = Nothing
+match t (Variable v) s = case lookup v s of
+    Nothing -> Just $ (v,t) : s
+    Just t' -> if t == t' then Just s else Nothing
+match _ _ _ = Nothing
+
+subst :: Cyp -> [(String, Cyp)] -> Cyp
+subst (Application f a) s = Application (subst f s) (subst a s)
+subst (Variable v) s = case lookup v s of
+      Nothing -> Variable v
+      Just t -> t
+subst t _ = t
+
 symPropEq :: String
 symPropEq = ".=."
 
@@ -147,8 +167,11 @@ defConsts = [symPropEq]
 
 {- Prop operations --------------------------------------------------}
 
-mapProp :: (Cyp -> Cyp) -> Prop -> Prop
-mapProp f (Prop l r) = Prop (f l) (f r)
+matchProp :: Prop -> Prop -> [(String, Cyp)] -> Maybe [(String, Cyp)]
+matchProp (Prop l r) (Prop l' r') = match l l' >=> match r r'
+
+substProp :: Prop -> [(String, Cyp)] -> Prop
+substProp (Prop l r) s = Prop (subst l s) (subst r s)
 
 
 
@@ -239,32 +262,6 @@ validEquationProof rules eqns aim = do
     if proved == aim
         then Right ()
         else Left ("Proved proposition does not match goal:\n" ++ printProp proved ++ "\nvs.\n" ++ printProp aim)
-
-match :: Cyp -> Cyp -> [(String, Cyp)] -> Maybe [(String, Cyp)]
-match (Application f a) (Application f' a') s = match f f' s >>= match a a'
-match (Literal a) (Literal b) s
-    | a == b = Just s
-    | otherwise = Nothing
-match (Const a) (Const b) s
-    | a == b = Just s
-    | otherwise = Nothing
-match t (Variable v) s = case lookup v s of
-    Nothing -> Just $ (v,t) : s
-    Just t' -> if t == t' then Just s else Nothing
-match _ _ _ = Nothing
-
-matchProp :: Prop -> Prop -> [(String, Cyp)] -> Maybe [(String, Cyp)]
-matchProp (Prop l r) (Prop l' r') = match l l' >=> match r r'
-
-subst :: Cyp -> [(String, Cyp)] -> Cyp
-subst (Application f a) s = Application (subst f s) (subst a s)
-subst (Variable v) s = case lookup v s of
-      Nothing -> Variable v
-      Just t -> t
-subst t _ = t
-
-substProp :: Prop -> [(String, Cyp)] -> Prop
-substProp prop s = mapProp (\c -> subst c s) prop
 
 rewriteTop :: Cyp -> Prop -> Maybe Cyp
 rewriteTop t (Prop lhs rhs) = fmap (subst rhs) $ match t lhs []
