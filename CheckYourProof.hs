@@ -135,6 +135,15 @@ mApp = liftM2 Application
 infixl 1 `mApp`
 infixl 1 `Application`
 
+symPropEq :: String
+symPropEq = ".=."
+
+symUMinus :: String
+symUMinus = "-"
+
+defConsts :: [String]
+defConsts = [symPropEq]
+
 
 {- Prop operations --------------------------------------------------}
 
@@ -155,7 +164,7 @@ proof masterFile studentFile = do
         syms <- readSym mResult
         (fundefs, consts) <- readFunc syms mResult
         axs <- readAxiom consts mResult
-        return $ Env { datatypes = dts, axioms = fundefs ++ axs , constants = nub consts }
+        return $ Env { datatypes = dts, axioms = fundefs ++ axs , constants = nub $ defConsts ++ consts }
     let lemmas = do
         e <- env
         showLeft $ Parsec.runParser studentParser e studentFile sContent
@@ -418,7 +427,7 @@ translateExp _ (Lit l) = Right $ Literal l
 translateExp f (InfixApp e1 op e2) =
     translateQOp f op `mApp` translateExp f e1 `mApp` translateExp f e2
 translateExp f (App e1 e2) = translateExp f e1 `mApp` translateExp f e2
-translateExp f (NegApp e) = return (Const "-") `mApp` translateExp f e
+translateExp f (NegApp e) = return (Const symUMinus) `mApp` translateExp f e
 translateExp f (LeftSection e op) = translateQOp f op `mApp` translateExp f e
 translateExp f (Paren e) = translateExp f e
 translateExp f (List l) = foldr (\e es -> Right (Const ":") `mApp` translateExp f e `mApp` es) (Right $ Const "[]") l
@@ -491,11 +500,11 @@ iparseProp env x = do
     cyp <- iparseCypWithMode mode env' x
     case cyp of
 -- XXX: Exclude ".=." from inner terms ...
-        Application (Application (Const ".=.") lhs) rhs -> Right $ Prop lhs rhs
+        Application (Application (Const c) lhs) rhs | c == symPropEq -> Right $ Prop lhs rhs
         _ -> Left $ "Term '" ++ x ++ "' is not a proposition"
   where
-    env' = env { constants = ".=." : constants env }
-    mode = baseParseMode { fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol ".=.") : baseFixities }
+    env' = env { constants = symPropEq : constants env }
+    mode = baseParseMode { fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol symPropEq) : baseFixities }
 
 {- Parser for the outer syntax --------------------------------------}
 
@@ -637,7 +646,7 @@ equationsParser = do
     equations' = do
         spaces
         l <- toEol
-        ls <- many1 (try (manySpacesOrComment >> string ".=." >> lineSpaces >> toEol))
+        ls <- many1 (try (manySpacesOrComment >> string symPropEq >> lineSpaces >> toEol))
         env <- getState
         let eqs = map (iparseCyp env) (l : ls)
         toParsec fmt . sequence $ eqs
