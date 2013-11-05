@@ -313,11 +313,6 @@ translateToTyp (Application cypcurry cyp) = TApplication (translateToTyp cypcurr
 translateToTyp (Variable a) = TVariable a
 translateToTyp (Const a) = TConst a
 
-getConstructorName :: TCyp -> String
-getConstructorName (TApplication (TConst a) _) = a
-getConstructorName (TConst a) = a
-getConstructorName (TApplication cypCurry _) = getConstructorName cypCurry
-
 getConstList :: (ConstList, VariableList) -> ConstList
 getConstList (cons ,_) = cons
 
@@ -359,14 +354,23 @@ translateLiteral (PrimDouble c) = show c
 translateLiteral (PrimChar c) = [c]
 translateLiteral (PrimString c) = c
 
+stripTComb :: TCyp -> (TCyp, [TCyp])
+stripTComb tcyp = work (tcyp, [])
+  where work (TApplication f a, xs) = work (f, a : xs)
+        work x = x
+
+listTComb :: TCyp -> [TCyp] -> TCyp
+listTComb f [] = f
+listTComb f (a : as) = listTComb (TApplication f a) as
+
 readDataType :: [ParseDeclTree] -> Either String [DataType]
 readDataType = sequence . mapMaybe parseDataType
   where
     parseDataType (DataDecl s) = Just $ do
         (tycon : dacons) <- traverse parseCons $ splitStringAt "=|" s []
-        dacons' <- traverse (parseDacon tycon) dacons
-        let daNames = map getConstructorName dacons
-        return $ DataType (getConstructorName tycon) (daNames `zip` dacons')
+        tyname <- constName $ fst $ stripTComb tycon
+        dacons' <- traverse (parseDacon  tycon)dacons
+        return $ DataType tyname dacons'
     parseDataType _ = Nothing
 
     parseCons :: String -> Either String TCyp
@@ -375,13 +379,19 @@ readDataType = sequence . mapMaybe parseDataType
         cyp <- translate (Right . Variable) e
         return $ translateToTyp cyp
 
-    parseDacon :: TCyp -> TCyp -> Either String TCyp
-    parseDacon _ TRec = Left $ "Raw data constructor already contains TRec. Please contact author!"
-    parseDacon tycon tcyp | tcyp == tycon = return TRec
-    parseDacon tycon (TApplication tf ta) =
-        liftM2 TApplication (parseDacon tycon tf) (parseDacon tycon ta)
-    parseDacon _ t = return $ t
+    constName (TConst c) = return c
+    constName tcyp = Left $ "Term '" ++ show tcyp ++ "' is not a constant."
 
+    parseDacon tycon tcyp = do
+        let (con, args) = stripTComb tcyp
+        name <- constName con
+        args' <- traverse (parseDaconArg tycon) args
+        return (name, listTComb con args')
+
+    parseDaconArg _ TRec = Left $ "Raw data constructor already contains TRec. Please contact author!"
+    parseDaconArg tycon tcyp | tcyp == tycon = return TRec
+    parseDaconArg _ (TApplication _ _) = Left $ "Nested constructors are not allowed."
+    parseDaconArg _ tcyp = return tcyp
 
 readAxiom :: [String] -> [ParseDeclTree] -> Either String [Prop]
 readAxiom consts = sequence . mapMaybe parseAxiom
