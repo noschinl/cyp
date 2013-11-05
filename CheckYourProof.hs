@@ -295,8 +295,10 @@ checkProof env (ParseLemma aprop (ParseInduction dtRaw overRaw casesRaw)) = errC
         validEquations (indHyps ++ axioms env) fixedSteps
 
     validateDatatype name = case find (\dt -> getDtName dt == name) (datatypes env) of
-        Nothing -> errStr $  "Invalid datatype '" ++ name ++ "'. Expected one of "
-            ++ show (map getDtName $ datatypes env)
+        Nothing -> err $ fsep $
+            [ text "Invalid datatype" <+> quotes (text name) <> text "."
+            , text "Expected one of:" ]
+            ++ punctuate comma (map (quotes . text . getDtName) $ datatypes env)
         Just dt -> Right dt
 
     validateOver s = do
@@ -390,7 +392,7 @@ computeIndHyps prop step over con = do
 readDataType :: [ParseDeclTree] -> Err [DataType]
 readDataType = sequence . mapMaybe parseDataType
   where
-    parseDataType (DataDecl s) = Just $ do
+    parseDataType (DataDecl s) = Just $ errCtxt (text "Parsing the datatype declaration" <+> quotes (text s)) $ do
         (tycon : dacons) <- traverse parseCons $ splitStringAt "=|" s []
         tyname <- constName $ fst $ stripComb tycon
         dacons' <- traverse (parseDacon tycon) dacons
