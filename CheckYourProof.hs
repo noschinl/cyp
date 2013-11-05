@@ -217,7 +217,7 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
     lookupCons name (DataType _ conss) = maybe (Left $ "Invalid case '" ++ name ++ "'") Right $
         find (\c -> fst c == name) conss >>= return
 
-    validateCase dt over (name, steps) = mapLeft (\x -> "Error in case '" ++ name ++"':\n    " ++ x) $do
+    validateCase dt over (name, steps) = mapLeft (\x -> "Error in case '" ++ name ++"':\n    " ++ x) $ do
         cons <- lookupCons name dt
         (indHyps, fixVars) <- computeIndHyps prop steps over cons
         validEquations (indHyps ++ axioms env) $ map (\x -> transformVarToConstList x fixVars) steps
@@ -252,7 +252,7 @@ validEquations :: [Prop] -> [Cyp] -> Either String ()
 validEquations _ [] = Left "Empty equation sequence"
 validEquations _ [_] = Right ()
 validEquations rules (t1:t2:ts)
-    | t2 `elem` rewriteAll t1 rules = validEquations rules (t2:ts)
+    | rewritesTo rules t1 t2 = validEquations rules (t2:ts)
     | otherwise = Left $ "(nmr) No matching rule: step " ++ printInfo t1 ++ " to " ++ printInfo t2
 
 validEquationProof :: [Prop] -> [Cyp] -> Prop -> Either String ()
@@ -273,10 +273,9 @@ rewrite t@(Application f a) prop =
     ++ map (Application f) (rewrite a prop)
 rewrite t prop = maybeToList $ rewriteTop t prop
 
--- XXX: move reflexivity out of rewriteAll, it is unexpected here ...
-rewriteAll :: Cyp -> [Prop] -> [Cyp]
-rewriteAll cyp rules = cyp : concatMap (rewrite cyp) rules'
-    where rules' = rules ++ map (\(Prop l r) -> Prop r l) rules
+rewritesTo :: [Prop] -> Cyp -> Cyp -> Bool
+rewritesTo rules l r = l == r || rewrites l r || rewrites r l
+  where rewrites from to = any (\x -> isJust $ match to x []) $ concatMap (rewrite from) rules 
 
 computeIndHyps :: Prop -> [Cyp] -> String -> (String, [TConsArg]) -> Either String ([Prop], [String])
 computeIndHyps prop step over con = do
