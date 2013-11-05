@@ -145,6 +145,9 @@ errCtxtStr = errCtxt . text
 indent :: Doc -> Doc -> Doc
 indent d1 d2 = d1 $+$ nest 4 d2
 
+eitherToErr :: Show a => Either a b -> Err b
+eitherToErr (Left x) = errStr (show x)
+eitherToErr (Right x) = Right x
 
 
 {- Cyp operations ---------------------------------------------------}
@@ -229,26 +232,30 @@ substProp (Prop l r) s = Prop (subst l s) (subst r s)
 
 proof :: FilePath-> FilePath -> IO (Err [Prop])
 proof masterFile studentFile = do
-    mContent <- readFile masterFile
-    sContent <- readFile studentFile
-    let env = errCtxtStr "Parsing master file" $ do
-        mResult <- showLeft $ Parsec.parse masterParser masterFile mContent
+    env <- readMasterFile masterFile
+    lemmas <- case env of
+        Left x -> return (Left x)
+        Right e -> readProofFile studentFile e
+    return $ join $ liftM2 checkProofs env lemmas
+
+readMasterFile :: FilePath -> IO (Err Env)
+readMasterFile path = do
+    content <- readFile path
+    return $ errCtxtStr "Parsing master file" $ do
+        mResult <- eitherToErr $ Parsec.parse masterParser path content
         dts <- readDataType mResult
         syms <- readSym mResult
         (fundefs, consts) <- readFunc syms mResult
         axs <- readAxiom consts mResult
         return $ Env { datatypes = dts, axioms = fundefs ++ axs , constants = nub $ defConsts ++ consts }
-    let lemmas = errCtxtStr "Parsing proof file" $ do
-        e <- env
-        showLeft $ Parsec.runParser studentParser e studentFile sContent
-    return $ join $ liftM2 process env lemmas
-  where
-    showLeft (Left x) = errStr (show x)
-    showLeft (Right x) = Right x
 
-    process env lemmas = checkProofs env lemmas
+readProofFile :: FilePath -> Env -> IO (Err [ParseLemma])
+readProofFile path env = do
+    content <- readFile path
+    return $ errCtxtStr "Parsing proof file" $
+        eitherToErr $ Parsec.runParser studentParser env path content
 
-checkProofs :: Env-> [ParseLemma] -> Err [Prop]
+checkProofs :: Env -> [ParseLemma] -> Err [Prop]
 checkProofs env []  = Right $ axioms env
 checkProofs env (l@(ParseLemma aprop _) : ls) = do
     errCtxt (text "Lemma:" <+> apropDoc aprop) $
