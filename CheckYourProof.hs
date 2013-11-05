@@ -490,11 +490,11 @@ iparseProp :: Env -> String -> Either String Prop
 iparseProp env x = do
     cyp <- iparseCypWithMode mode env' x
     case cyp of
--- XXX: handle ".=." differently! -> Const; Exclude ".=." from inner terms ...
-        Application (Application (Variable ".=.") lhs) rhs -> Right $ Prop lhs rhs
+-- XXX: Exclude ".=." from inner terms ...
+        Application (Application (Const ".=.") lhs) rhs -> Right $ Prop lhs rhs
         _ -> Left $ "Term '" ++ x ++ "' is not a proposition"
   where
-    env' = env { constants = ".=" : constants env }
+    env' = env { constants = ".=." : constants env }
     mode = baseParseMode { fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol ".=.") : baseFixities }
 
 {- Parser for the outer syntax --------------------------------------}
