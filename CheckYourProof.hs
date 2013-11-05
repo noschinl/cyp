@@ -67,8 +67,8 @@ data ParseDeclTree
 data ParseLemma = ParseLemma Prop ParseProof deriving Show -- Proposition, Proof
 
 data ParseProof
-    = ParseInduction String String [(String, [Cyp])] -- DataTyp, Over, Cases
-    | ParseEquation [Cyp]
+    = ParseInduction String String [(String, [ACyp])] -- DataTyp, Over, Cases
+    | ParseEquation [ACyp]
     deriving Show
 
 type ParseEquations = [String]
@@ -97,6 +97,9 @@ data Lemma = Lemma Prop Proof -- Proposition (_ = _), Proof
 
 data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Literal
     deriving (Show, Eq)
+
+-- Term, annotated with original string representation
+data ACyp = ACyp String Cyp deriving Show
 
 data TConsArg = TNRec | TRec deriving (Show,Eq)
 
@@ -165,6 +168,19 @@ defConsts :: [String]
 defConsts = [symPropEq]
 
 
+{- ACyp operations --------------------------------------------------}
+
+acypCyp :: ACyp -> Cyp
+acypCyp (ACyp _ cyp) = cyp
+
+acypRep :: ACyp -> String
+acypRep (ACyp s _) = s
+
+-- Use with care -- should not invalidate representation
+acypMap :: (Cyp -> Cyp) -> ACyp -> ACyp
+acypMap f (ACyp s cyp) = ACyp s (f cyp)
+
+
 {- Prop operations --------------------------------------------------}
 
 matchProp :: Prop -> Prop -> [(String, Cyp)] -> Maybe [(String, Cyp)]
@@ -217,13 +233,12 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
     lookupCons name (DataType _ conss) = maybe (Left $ "Invalid case '" ++ name ++ "'") Right $
         find (\c -> fst c == name) conss >>= return
 
+    validateCase :: DataType -> String -> (String, [ACyp]) -> Either String ()
     validateCase dt over (name, steps) = mapLeft (\x -> "Error in case '" ++ name ++"':\n    " ++ x) $ do
         cons <- lookupCons name dt
         (indHyps, fixVars) <- computeIndHyps prop steps over cons
-        validEquations (indHyps ++ axioms env) $ map (\x -> transformVarToConstList x fixVars) steps
-
-    transformVarToConstList :: Cyp -> [String] -> Cyp
-    transformVarToConstList cyp = subst cyp . map (\x -> (x, Const x))
+        let fixedSteps = map (acypMap $ \cyp -> subst cyp $ map (\x -> (x, Const x)) fixVars) steps
+        validEquations (indHyps ++ axioms env) fixedSteps
 
     validateDatatype name = case find (\dt -> getDtName dt == name) (datatypes env) of
         Nothing -> Left $  "Invalid datatype '" ++ name ++ "'. Expected one of "
@@ -248,17 +263,17 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
     getDtConss (DataType _ conss) = conss
     getDtName (DataType n _) = n
 
-validEquations :: [Prop] -> [Cyp] -> Either String ()
+validEquations :: [Prop] -> [ACyp] -> Either String ()
 validEquations _ [] = Left "Empty equation sequence"
 validEquations _ [_] = Right ()
 validEquations rules (t1:t2:ts)
-    | rewritesTo rules t1 t2 = validEquations rules (t2:ts)
-    | otherwise = Left $ "(nmr) No matching rule: step " ++ printInfo t1 ++ " to " ++ printInfo t2
+    | rewritesTo rules (acypCyp t1) (acypCyp t2) = validEquations rules (t2:ts)
+    | otherwise = Left $ "Invalid proof step: " ++ acypRep t1 ++ " " ++ symPropEq ++ " " ++ acypRep t2
 
-validEquationProof :: [Prop] -> [Cyp] -> Prop -> Either String ()
+validEquationProof :: [Prop] -> [ACyp] -> Prop -> Either String ()
 validEquationProof rules eqns aim = do
     validEquations rules eqns
-    let proved = Prop (head eqns) (last eqns)
+    let proved = Prop (acypCyp $ head $ eqns) (acypCyp $ last $ eqns)
     if proved == aim
         then Right ()
         else Left ("Proved proposition does not match goal:\n" ++ printProp proved ++ "\nvs.\n" ++ printProp aim)
@@ -277,10 +292,10 @@ rewritesTo :: [Prop] -> Cyp -> Cyp -> Bool
 rewritesTo rules l r = l == r || rewrites l r || rewrites r l
   where rewrites from to = any (\x -> isJust $ match to x []) $ concatMap (rewrite from) rules 
 
-computeIndHyps :: Prop -> [Cyp] -> String -> (String, [TConsArg]) -> Either String ([Prop], [String])
+computeIndHyps :: Prop -> [ACyp] -> String -> (String, [TConsArg]) -> Either String ([Prop], [String])
 computeIndHyps prop step over con = do
-    inst <- maybe (Left "Equations do not match induction hypothesis") Right $
-        matchInductVar prop $ Prop (head step) (last step)
+    inst <- maybe (Left "Equations do not match induction hypothesis") Right $ -- XXX better message
+        matchInductVar prop $ Prop (acypCyp $ head step) (acypCyp $ last step)
     (recVars, nonrecVars) <- matchInstWithCon con (stripComb inst)
     let instVars = recVars ++ nonrecVars
     when (nub instVars /= instVars) $
@@ -642,7 +657,7 @@ toEol = do
     eol
     return res
 
-equationsParser :: Parsec [Char] Env [Cyp]
+equationsParser :: Parsec [Char] Env [ACyp]
 equationsParser = do
     eq1 <- equations'
     eq2 <- option [] (try equations')
@@ -653,11 +668,11 @@ equationsParser = do
         l <- toEol
         ls <- many1 (try (manySpacesOrComment >> string symPropEq >> lineSpaces >> toEol))
         env <- getState
-        let eqs = map (iparseCyp $ defaultToVar env) (l : ls)
+        let eqs = map (\x -> ACyp x <$> iparseCyp (defaultToVar env) x) (l : ls)
         toParsec fmt . sequence $ eqs
     fmt err = "Failed to parse expression: " ++ err
 
-caseParser :: Parsec [Char] Env (String, [Cyp])
+caseParser :: Parsec [Char] Env (String, [ACyp])
 caseParser = do
     keywordCase
     manySpacesOrComment
