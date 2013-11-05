@@ -121,6 +121,14 @@ printRunnable (Const a) = a
 
 {- Cyp operations ---------------------------------------------------}
 
+stripComb :: Cyp -> (Cyp, [Cyp])
+stripComb cyp = work (cyp, [])
+  where work (Application f a, xs) = work (f, a : xs)
+        work x = x
+
+listComb :: Cyp -> [Cyp] -> Cyp
+listComb = foldl Application
+
 mApp :: Monad m => m Cyp -> m Cyp -> m Cyp
 mApp = liftM2 Application
 
@@ -294,66 +302,6 @@ computeIndHyps prop step over con = do
             safeFromVar cyp = Left $ "Term '" ++ show cyp ++ "' used in induction is not a variable."
 
 
-{- Pretty printing --------------------------------------------------}
-
-printProp :: Prop -> String
-printProp (Prop l r) = printInfo l ++ " = " ++ printInfo r
-
-printInfo :: Cyp -> String
-printInfo (Application cypCurry cyp) = "((" ++ (printInfo cypCurry) ++ ") " ++ (printInfo cyp) ++ ")"
-printInfo (Literal a) = translateLiteral a
-printInfo (Variable a) = "?" ++ a
-printInfo (Const a) = a
-
-
-{- Parse inner syntax -----------------------------------------------}
-
-translate :: (String -> Either String Cyp) -> Exp -> Either String Cyp
-translate f (Var v) = f =<< translateQName v
-translate _ (Con c) = Const <$> translateQName c
-translate _ (Lit l) = Right $ Literal l
-translate f (InfixApp e1 op e2) =
-    translateQOp f op `mApp` translate f e1 `mApp` translate f e2
-translate f (App e1 e2) = translate f e1 `mApp` translate f e2
-translate f (NegApp e) = return (Const "-") `mApp` translate f e
-translate f (LeftSection e op) = translateQOp f op `mApp` translate f e
-translate f (Paren e) = translate f e
-translate f (List l) = foldr (\e es -> Right (Const ":") `mApp` translate f e `mApp` es) (Right $ Const "[]") l
-translate _ e = Left $ "Unsupported expression syntax used: " ++ show e
-
-translateQOp :: (String -> Either String Cyp) -> QOp -> Either String Cyp
-translateQOp _ (QConOp op) = Const <$> translateQName op
-translateQOp f (QVarOp op) = f =<< translateQName op
-
-
-translateQName :: QName -> Either String String
-translateQName (Qual (ModuleName m) (Ident n)) = return $ m ++ "." ++ n
-translateQName (Qual (ModuleName m) (Symbol n)) = return $ m ++ "." ++ n
-translateQName (UnQual (Ident n)) = return n
-translateQName (UnQual (Symbol n)) = return n
-translateQName (Special UnitCon) = return "()"
-translateQName (Special ListCon) = return "[]"
-translateQName (Special FunCon) = return "->"
-translateQName (Special Cons) = return ":"
-translateQName q = Left $ "Unsupported QName '" ++ show q ++ "'."
-
-translateLiteral :: Literal -> String
-translateLiteral (Char c) = [c]
-translateLiteral (String s) = s
-translateLiteral (Int c) = show c
-translateLiteral (Frac c) = show c
-translateLiteral (PrimInt c) = show c
-translateLiteral (PrimWord c) = show c
-translateLiteral (PrimFloat c) = show c
-translateLiteral (PrimDouble c) = show c
-translateLiteral (PrimChar c) = [c]
-translateLiteral (PrimString c) = c
-
-stripComb :: Cyp -> (Cyp, [Cyp])
-stripComb cyp = work (cyp, [])
-  where work (Application f a, xs) = work (f, a : xs)
-        work x = x
-
 readDataType :: [ParseDeclTree] -> Either String [DataType]
 readDataType = sequence . mapMaybe parseDataType
   where
@@ -365,7 +313,7 @@ readDataType = sequence . mapMaybe parseDataType
     parseDataType _ = Nothing
 
     parseCons :: String -> Either String Cyp
-    parseCons s = iparseExp baseParseMode s >>= translate (Right . Variable)
+    parseCons s = iparseExp baseParseMode s >>= translateExp (Right . Variable)
 
     constName (Const c) = return c
     constName cyp = Left $ "Term '" ++ show cyp ++ "' is not a constant."
@@ -393,7 +341,7 @@ readSym :: [ParseDeclTree] -> Either String [String]
 readSym = sequence . mapMaybe parseSym
   where
     parseSym (SymDecl s) = Just $ do
-        cyp <- iparseExp baseParseMode s >>= translate (Right . Const)
+        cyp <- iparseExp baseParseMode s >>= translateExp (Right . Const)
         case cyp of
             Const v -> Right v
             _ -> Left $ "Expression '" ++ s ++ "' is not a symbol"
@@ -407,15 +355,11 @@ readFunc syms pds = do
     props <- traverse (declToProp syms') rawDecls
     return (props, syms')
   where
-    strOfName (Ident s) = s
-    strOfName (Symbol s) = s
-
-    listComb = foldl Application
 
     declToProp :: [String] -> (String, [Exts.Pat], Exts.Exp) -> Either String Prop
     declToProp consts (funSym, pats, rawRhs) = do
         tPat <- traverse translatePat pats
-        rhs <- translate tv rawRhs
+        rhs <- translateExp tv rawRhs
         return $ Prop (listComb (Const funSym) tPat) rhs
       where
         pvars = concatMap collectPVars pats
@@ -424,35 +368,17 @@ readFunc syms pds = do
              | otherwise = Left $ "Unbound variable '" ++ s ++ "' not allowed on rhs"
 
     collectPVars :: Exts.Pat -> [String]
-    collectPVars (Exts.PVar v) = [strOfName v]
+    collectPVars (Exts.PVar v) = [translateName v]
     collectPVars (Exts.PInfixApp p1 _ p2) = collectPVars p1 ++ collectPVars p2
     collectPVars (Exts.PApp _ ps) = concatMap collectPVars ps
     collectPVars (Exts.PList ps) = concatMap collectPVars ps
     collectPVars (Exts.PParen p) = collectPVars p
     collectPVars _ = []
 
-    translatePat :: Exts.Pat -> Either String Cyp
-    translatePat (Exts.PVar v) = Right $ Variable $ strOfName v
-    translatePat (Exts.PLit l) = Right $ Literal l
-    -- PNeg?
-    translatePat (Exts.PNPlusK _ _) = Left "n+k patterns are not supported"
-    translatePat (Exts.PInfixApp p1 qn p2) =
-        (Const <$> translateQName qn) `mApp` translatePat p1 `mApp` translatePat p2
-    translatePat (Exts.PApp qn ps) = do
-        cs <- traverse translatePat ps
-        n <- translateQName qn
-        return $ listComb (Const n) cs
-    translatePat (Exts.PTuple _) = Left "tuple patterns are not supported"
-    translatePat (Exts.PList ps) = foldr (\p cs -> Right (Const ":") `mApp` translatePat p `mApp` cs) (Right $ Const "[]") ps
-    translatePat (Exts.PParen p) = translatePat p
-    translatePat (Exts.PAsPat _ _) = Left "as patterns are not supported"
-    translatePat Exts.PWildCard = Left "wildcard patterns are not supported"
-    translatePat f = Left $ "unsupported pattern type: " ++ show f
-
     parseFunc :: ParseDeclTree -> Maybe (Either String (String, [Exts.Pat], Exts.Exp))
     parseFunc (FunDef s) = Just $ case parseDecl s of
         ParseOk (Exts.FunBind [Exts.Match _ name pat _ (Exts.UnGuardedRhs rhs) (Exts.BDecls [])])
-            -> Right (strOfName name, pat, rhs)
+            -> Right (translateName name, pat, rhs)
         ParseOk _ -> Left $ "Invalid function definition '" ++ s ++ "'."
         f@(ParseFailed _ _ ) -> Left $ show f
     parseFunc _ = Nothing
@@ -465,7 +391,7 @@ iparseExp mode s = case parseExpWithMode mode s of
 iparseCypWithMode :: ParseMode -> Env -> String -> Either String Cyp
 iparseCypWithMode mode env s = do
     p <- iparseExp mode s
-    translate tv p
+    translateExp tv p
   where tv x = Right $ if x `elem` constants env then Const x else Variable x
 
 iparseCyp :: Env -> String -> Either String Cyp
@@ -492,11 +418,86 @@ splitStringAt a (x:xs) h
 	| otherwise = splitStringAt a xs (h++[x])
 												 
 
-trim :: String -> String
-trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
+{- Pretty printing --------------------------------------------------}
 
+printProp :: Prop -> String
+printProp (Prop l r) = printInfo l ++ " = " ++ printInfo r
+
+printInfo :: Cyp -> String
+printInfo (Application cypCurry cyp) = "((" ++ (printInfo cypCurry) ++ ") " ++ (printInfo cyp) ++ ")"
+printInfo (Literal a) = translateLiteral a
+printInfo (Variable a) = "?" ++ a
+printInfo (Const a) = a
+
+
+{- Transform Exp to Cyp ---------------------------------------------}
+
+translateExp :: (String -> Either String Cyp) -> Exp -> Either String Cyp
+translateExp f (Var v) = f =<< translateQName v
+translateExp _ (Con c) = Const <$> translateQName c
+translateExp _ (Lit l) = Right $ Literal l
+translateExp f (InfixApp e1 op e2) =
+    translateQOp f op `mApp` translateExp f e1 `mApp` translateExp f e2
+translateExp f (App e1 e2) = translateExp f e1 `mApp` translateExp f e2
+translateExp f (NegApp e) = return (Const "-") `mApp` translateExp f e
+translateExp f (LeftSection e op) = translateQOp f op `mApp` translateExp f e
+translateExp f (Paren e) = translateExp f e
+translateExp f (List l) = foldr (\e es -> Right (Const ":") `mApp` translateExp f e `mApp` es) (Right $ Const "[]") l
+translateExp _ e = Left $ "Unsupported expression syntax used: " ++ show e
+
+translatePat :: Exts.Pat -> Either String Cyp
+translatePat (Exts.PVar v) = Right $ Variable $ translateName v
+translatePat (Exts.PLit l) = Right $ Literal l
+-- PNeg?
+translatePat (Exts.PNPlusK _ _) = Left "n+k patterns are not supported"
+translatePat (Exts.PInfixApp p1 qn p2) =
+    (Const <$> translateQName qn) `mApp` translatePat p1 `mApp` translatePat p2
+translatePat (Exts.PApp qn ps) = do
+    cs <- traverse translatePat ps
+    n <- translateQName qn
+    return $ listComb (Const n) cs
+translatePat (Exts.PTuple _) = Left "tuple patterns are not supported"
+translatePat (Exts.PList ps) = foldr (\p cs -> Right (Const ":") `mApp` translatePat p `mApp` cs) (Right $ Const "[]") ps
+translatePat (Exts.PParen p) = translatePat p
+translatePat (Exts.PAsPat _ _) = Left "as patterns are not supported"
+translatePat Exts.PWildCard = Left "wildcard patterns are not supported"
+translatePat f = Left $ "unsupported pattern type: " ++ show f
+
+translateQOp :: (String -> Either String Cyp) -> QOp -> Either String Cyp
+translateQOp _ (QConOp op) = Const <$> translateQName op
+translateQOp f (QVarOp op) = f =<< translateQName op
+
+translateQName :: QName -> Either String String
+translateQName (Qual (ModuleName m) (Ident n)) = return $ m ++ "." ++ n
+translateQName (Qual (ModuleName m) (Symbol n)) = return $ m ++ "." ++ n
+translateQName (UnQual (Ident n)) = return n
+translateQName (UnQual (Symbol n)) = return n
+translateQName (Special UnitCon) = return "()"
+translateQName (Special ListCon) = return "[]"
+translateQName (Special FunCon) = return "->"
+translateQName (Special Cons) = return ":"
+translateQName q = Left $ "Unsupported QName '" ++ show q ++ "'."
+
+translateLiteral :: Literal -> String
+translateLiteral (Char c) = [c]
+translateLiteral (String s) = s
+translateLiteral (Int c) = show c
+translateLiteral (Frac c) = show c
+translateLiteral (PrimInt c) = show c
+translateLiteral (PrimWord c) = show c
+translateLiteral (PrimFloat c) = show c
+translateLiteral (PrimDouble c) = show c
+translateLiteral (PrimChar c) = [c]
+translateLiteral (PrimString c) = c
+
+translateName :: Name -> String
+translateName (Ident s) = s
+translateName (Symbol s) = s
 
 {- Parser for the outer syntax --------------------------------------}
+
+trim :: String -> String
+trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
 
 toParsec :: (a -> String) -> Either a b -> Parsec c u b
 toParsec f = either (fail . f) return
