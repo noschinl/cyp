@@ -1,3 +1,6 @@
+goal length (reverse zs) .=. length zs
+goal length (reverse (1 : ys)) .=. 1 + length ys
+
 data List a = [] | a : (List a)
 data Tree a = Leaf | Tree a (Tree a) (Tree a)
 

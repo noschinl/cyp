@@ -13,7 +13,7 @@ import qualified Language.Haskell.Exts.Syntax as Exts
 import Language.Haskell.Exts.Syntax (Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..), Assoc(..))
 import Debug.Trace
 import Text.Show.Pretty (ppShow)
-import Text.PrettyPrint (comma, fsep, nest, punctuate, quotes, text, (<>), (<+>), ($+$), Doc)
+import Text.PrettyPrint (comma, fsep, nest, punctuate, quotes, text, vcat, (<>), (<+>), ($+$), Doc)
 
 {-
 
@@ -60,6 +60,7 @@ data ParseDeclTree
     | SymDecl String
     | Axiom String
     | FunDef String
+    | Goal String
     deriving Show
 
 data ParseLemma = ParseLemma AProp ParseProof deriving Show -- Proposition, Proof
@@ -75,6 +76,7 @@ data Env = Env
     { datatypes :: [DataType]
     , axioms :: [Prop]
     , constants :: [String]
+    , goals :: [AProp]
     }
     deriving Show
 
@@ -229,30 +231,35 @@ substProp (Prop l r) s = Prop (subst l s) (subst r s)
 
 {- Main -------------------------------------------------------------}
 
-proof :: FilePath-> FilePath -> IO (Err [Prop])
+proof :: FilePath-> FilePath -> IO (Err ())
 proof masterFile studentFile = do
-    env <- readMasterFile masterFile
-    lemmas <- case env of
-        Left x -> return (Left x)
-        Right e -> readProofFile studentFile e
-    return $ join $ liftM2 checkProofs env lemmas
+    mContent <- readFile masterFile
+    sContent <- readFile studentFile
+    return $ do
+        env <- processMasterFile masterFile mContent
+        lemmaStmts <- processProofFile env studentFile sContent
+        results <- checkProofs env lemmaStmts
+        case filter (not . contained results) $ goals env of
+            [] -> return ()
+            xs -> err $ indent (text "The following goals are still open:") $
+                vcat $ map apropDoc xs
+  where
+    contained props (AProp _ goal) = any (\x -> isJust $ matchProp goal x []) props
 
-readMasterFile :: FilePath -> IO (Err Env)
-readMasterFile path = do
-    content <- readFile path
-    return $ errCtxtStr "Parsing master file" $ do
-        mResult <- eitherToErr $ Parsec.parse masterParser path content
-        dts <- readDataType mResult
-        syms <- readSym mResult
-        (fundefs, consts) <- readFunc syms mResult
-        axs <- readAxiom consts mResult
-        return $ Env { datatypes = dts, axioms = fundefs ++ axs , constants = nub $ defConsts ++ consts }
+processMasterFile :: FilePath -> String -> Err Env
+processMasterFile path content = errCtxtStr "Parsing master file" $ do
+    mResult <- eitherToErr $ Parsec.parse masterParser path content
+    dts <- readDataType mResult
+    syms <- readSym mResult
+    (fundefs, consts) <- readFunc syms mResult
+    axs <- readAxiom consts mResult
+    gls <- readGoal consts mResult
+    return $ Env { datatypes = dts, axioms = fundefs ++ axs,
+        constants = nub $ defConsts ++ consts, goals = gls }
 
-readProofFile :: FilePath -> Env -> IO (Err [ParseLemma])
-readProofFile path env = do
-    content <- readFile path
-    return $ errCtxtStr "Parsing proof file" $
-        eitherToErr $ Parsec.runParser studentParser env path content
+processProofFile :: Env -> FilePath -> String -> Err [ParseLemma]
+processProofFile env path  content= errCtxtStr "Parsing proof file" $
+    eitherToErr $ Parsec.runParser studentParser env path content
 
 checkProofs :: Env -> [ParseLemma] -> Err [Prop]
 checkProofs env []  = Right $ axioms env
@@ -412,6 +419,12 @@ readAxiom consts = sequence . mapMaybe parseAxiom
   where
     parseAxiom (Axiom s) = Just $ iparseProp (defaultToSchematic consts) s
     parseAxiom _ = Nothing
+
+readGoal :: [String] -> [ParseDeclTree] -> Err [AProp]
+readGoal consts = sequence . mapMaybe parseGoal
+  where
+    parseGoal (Goal s) = Just $ AProp s <$> iparseProp (defaultToFree consts) s
+    parseGoal _ = Nothing
 
 readSym :: [ParseDeclTree] -> Err [String]
 readSym = sequence . mapMaybe parseSym
@@ -624,29 +637,27 @@ masterParser =
 masterParsers :: Parsec [Char] () ParseDeclTree
 masterParsers =
     do manySpacesOrComment
-       result <- (dataParser <|> axiomParser <|> symParser <|> try funParser)
+       result <- (goalParser <|> dataParser <|> axiomParser <|> symParser <|> try funParser)
        return result
 
-axiomParser :: Parsec [Char] () ParseDeclTree
-axiomParser =
-    do  keyword "axiom"
-        result <- many1 (noneOf "\r\n")
-        eol
-        return (Axiom result)
-
-dataParser :: Parsec [Char] () ParseDeclTree
-dataParser =
-    do  keyword "data"
-        result <- many1 (noneOf "\r\n" )
-        eol
-        return (DataDecl result)
-
-symParser :: Parsec [Char] () ParseDeclTree
-symParser =
-    do  keyword "declare_sym" 
+keywordToEolParser :: String -> (String -> a) -> Parsec [Char] () a
+keywordToEolParser s f =
+    do  keyword s
         result <- trim <$> many1 (noneOf "\r\n")
         eol
-        return (SymDecl result)
+        return (f result)
+
+axiomParser :: Parsec [Char] () ParseDeclTree
+axiomParser = keywordToEolParser "axiom" Axiom
+
+dataParser :: Parsec [Char] () ParseDeclTree
+dataParser = keywordToEolParser "data" DataDecl
+
+goalParser :: Parsec [Char] () ParseDeclTree
+goalParser = keywordToEolParser "goal" Goal
+
+symParser :: Parsec [Char] () ParseDeclTree
+symParser = keywordToEolParser "declare_sym" SymDecl
 
 funParser :: Parsec [Char] () ParseDeclTree
 funParser =
