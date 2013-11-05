@@ -323,8 +323,10 @@ translate f (InfixApp e1 (QConOp i) e2) =
 translate f (InfixApp e1 (QVarOp i) e2) =
     (f $ translateQName i) `mApp` translate f e1 `mApp` translate f e2
 translate f (App e1 e2) = translate f e1 `mApp` translate f e2
+translate f (NegApp e) = return (Const "-") `mApp` translate f e
 translate f (Paren e) = translate f e
 translate f (List l) = foldr (\e es -> Right (Const ":") `mApp` translate f e `mApp` es) (Right $ Const "[]") l
+translate _ e = Left $ "Unsupported expression syntax used: " ++ show e
 
 translateQName :: QName -> String
 translateQName (Qual (ModuleName m) (Ident n)) = m ++ "." ++ n
