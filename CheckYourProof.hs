@@ -14,6 +14,7 @@ import Language.Haskell.Exts.Syntax (Literal (..), QName(..), SpecialCon (..), N
 import Debug.Trace
 import Text.Show.Pretty (ppShow)
 import qualified Text.PrettyPrint as PP
+import Text.PrettyPrint (comma, fsep, nest, punctuate, quotes, text, (<>), (<+>), ($+$), Doc)
 
 {-
 
@@ -65,7 +66,7 @@ data ParseDeclTree
     | FunDef String
     deriving Show
 
-data ParseLemma = ParseLemma Prop ParseProof deriving Show -- Proposition, Proof
+data ParseLemma = ParseLemma AProp ParseProof deriving Show -- Proposition, Proof
 
 data ParseProof
     = ParseInduction String String [(String, [ACyp])] -- DataTyp, Over, Cases
@@ -102,9 +103,11 @@ data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Litera
 -- Term, annotated with original string representation
 data ACyp = ACyp String Cyp deriving Show
 
+data AProp = AProp String Prop deriving Show
+
 data TConsArg = TNRec | TRec deriving (Show,Eq)
 
-type Err a = Either PP.Doc a
+type Err a = Either Doc a
 
 
 {- Debug tools ------------------------------------------------------}
@@ -126,18 +129,22 @@ printRunnable (Const a) = a
 
 {- Error handling combinators ---------------------------------------}
 
-err :: PP.Doc -> Err a
+err :: Doc -> Err a
 err = Left
 
 errStr :: String -> Err a
-errStr = Left . PP.text
+errStr = Left . text
 
-errCtxt :: PP.Doc -> Err a -> Err a
-errCtxt d1 (Left d2) = Left $ PP.hang d1 4 d2
+errCtxt :: Doc -> Err a -> Err a
+errCtxt d1 (Left d2) = Left $ indent d1 d2
 errCtxt _ x = x
 
 errCtxtStr :: String -> Err a -> Err a
-errCtxtStr = errCtxt . PP.text
+errCtxtStr = errCtxt . text
+
+indent :: Doc -> Doc -> Doc
+indent d1 d2 = d1 $+$ nest 4 d2
+
 
 
 {- Cyp operations ---------------------------------------------------}
@@ -186,13 +193,22 @@ defConsts :: [String]
 defConsts = [symPropEq]
 
 
-{- ACyp operations --------------------------------------------------}
+{- ACyp and AProp operations-----------------------------------------}
 
 acypCyp :: ACyp -> Cyp
 acypCyp (ACyp _ cyp) = cyp
 
 acypRep :: ACyp -> String
 acypRep (ACyp s _) = s
+
+acypDoc :: ACyp -> Doc
+acypDoc (ACyp s _) = text s
+
+apropProp :: AProp -> Prop
+apropProp (AProp _ p) = p
+
+apropDoc :: AProp -> Doc
+apropDoc (AProp s _) = text s
 
 -- Use with care -- should not invalidate representation
 acypMap :: (Cyp -> Cyp) -> ACyp -> ACyp
@@ -215,14 +231,14 @@ proof :: FilePath-> FilePath -> IO (Err [Prop])
 proof masterFile studentFile = do
     mContent <- readFile masterFile
     sContent <- readFile studentFile
-    let env = do
+    let env = errCtxtStr "Parsing master file" $ do
         mResult <- showLeft $ Parsec.parse masterParser masterFile mContent
         dts <- readDataType mResult
         syms <- readSym mResult
         (fundefs, consts) <- readFunc syms mResult
         axs <- readAxiom consts mResult
         return $ Env { datatypes = dts, axioms = fundefs ++ axs , constants = nub $ defConsts ++ consts }
-    let lemmas = do
+    let lemmas = errCtxtStr "Parsing proof file" $ do
         e <- env
         showLeft $ Parsec.runParser studentParser e studentFile sContent
     return $ join $ liftM2 process env lemmas
@@ -234,27 +250,34 @@ proof masterFile studentFile = do
 
 checkProofs :: Env-> [ParseLemma] -> Err [Prop]
 checkProofs env []  = Right $ axioms env
-checkProofs env (l@(ParseLemma prop _) : ls) = do
-    checkProof env l
-    checkProofs (env { axioms = prop : axioms env}) ls
+checkProofs env (l@(ParseLemma aprop _) : ls) = do
+    errCtxt (text "Lemma:" <+> apropDoc aprop) $
+        checkProof env l
+    checkProofs (env { axioms = apropProp aprop : axioms env}) ls
 
 mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f = either (Left . f) Right
 
 checkProof :: Env -> ParseLemma -> Err ()
-checkProof env (ParseLemma prop (ParseEquation eqns)) = validEquationProof (axioms env) eqns prop
-checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
+checkProof env (ParseLemma aprop (ParseEquation eqns)) =
+    validEquationProof (axioms env) eqns (apropProp aprop)
+checkProof env (ParseLemma aprop (ParseInduction dtRaw overRaw casesRaw)) = errCtxt ctxtMsg $ do
     dt <- validateDatatype dtRaw
     over <- validateOver overRaw
     validateCases dt over casesRaw
   where
-    lookupCons name (DataType _ conss) = maybe (errStr $ "Invalid case '" ++ name ++ "'") Right $
-        find (\c -> fst c == name) conss >>= return
+    ctxtMsg = text "Induction over variable"
+        <+> quotes (text overRaw) <+> text "of type" <+> quotes (text dtRaw)
+    lookupCons name (DataType _ conss) = case find (\c -> fst c == name) conss of
+        Nothing -> err (text "Invalid case" <+> quotes (text name) <> comma
+            <+> text "expected one of"
+            <+> (fsep . punctuate comma . map (quotes . text . fst) $ conss))
+        Just x -> return x
 
     validateCase :: DataType -> String -> (String, [ACyp]) -> Err ()
-    validateCase dt over (name, steps) = errCtxtStr ("Error in case '" ++ name ++"':") $ do
+    validateCase dt over (name, steps) = errCtxt (text "Case" <+> quotes (text name)) $ do
         cons <- lookupCons name dt
-        (indHyps, fixVars) <- computeIndHyps prop steps over cons
+        (indHyps, fixVars) <- computeIndHyps (apropProp aprop) steps over cons
         let fixedSteps = map (acypMap $ \cyp -> subst cyp $ map (\x -> (x, Const x)) fixVars) steps
         validEquations (indHyps ++ axioms env) fixedSteps
 
@@ -263,11 +286,11 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
             ++ show (map getDtName $ datatypes env)
         Just dt -> Right dt
 
-    validateOver text = do
-        cyp <- iparseCyp (defaultToVar env) text
+    validateOver s = do
+        cyp <- iparseCyp (defaultToVar env) s
         case cyp of
             Variable v -> return v
-            _ -> errStr $ "Variable '" ++ text ++ "' is not a valid induction variable"
+            _ -> errStr $ "Variable '" ++ s ++ "' is not a valid induction variable"
 
     validateCases dt over cases = do
         case missingCase of
@@ -286,16 +309,17 @@ validEquations _ [] = errStr "Empty equation sequence"
 validEquations _ [_] = Right ()
 validEquations rules (t1:t2:ts)
     | rewritesTo rules (acypCyp t1) (acypCyp t2) = validEquations rules (t2:ts)
-    | otherwise = errCtxtStr "Invalid proof step:" $
+    | otherwise = errCtxtStr "Invalid proof step" $
         errStr $ acypRep t1 ++ " " ++ symPropEq ++ " " ++ acypRep t2
 
 validEquationProof :: [Prop] -> [ACyp] -> Prop -> Err ()
 validEquationProof rules eqns aim = do
     validEquations rules eqns
-    let proved = Prop (acypCyp $ head $ eqns) (acypCyp $ last $ eqns)
-    if proved == aim
-        then Right ()
-        else errStr ("Proved proposition does not match goal:\n" ++ printProp proved ++ "\nvs.\n" ++ printProp aim)
+    let (l, r) = (head $ eqns, last $ eqns)
+    let proved = Prop (acypCyp l) (acypCyp $ r)
+    unless (proved == aim) $
+        err $ text "Proved proposition does not match goal:" `indent`
+            (acypDoc l <+> text symPropEq <+> acypDoc r)
 
 rewriteTop :: Cyp -> Prop -> Maybe Cyp
 rewriteTop t (Prop lhs rhs) = fmap (subst rhs) $ match t lhs []
@@ -633,11 +657,12 @@ inductionProofParser =
         keywordQED
         return (ParseInduction datatype over cases)
 
-propParser :: Parsec [Char] Env Prop
+propParser :: Parsec [Char] Env AProp
 propParser = do
-    text <- many (noneOf "\r\n")
+    s <- trim <$> many (noneOf "\r\n")
     env <- getState
-    let prop = errCtxtStr "Failed to parse expression" $ iparseProp env text
+    let prop = errCtxtStr "Failed to parse expression" $
+            AProp s <$> iparseProp env s
     toParsec show prop
 
 lemmaParser :: Parsec [Char] Env ParseLemma
