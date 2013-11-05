@@ -388,27 +388,6 @@ iparseExp mode s = case parseExpWithMode mode s of
     ParseOk p -> Right p
     f@(ParseFailed _ _) -> Left $ show f
 
-iparseCypWithMode :: ParseMode -> Env -> String -> Either String Cyp
-iparseCypWithMode mode env s = do
-    p <- iparseExp mode s
-    translateExp tv p
-  where tv x = Right $ if x `elem` constants env then Const x else Variable x
-
-iparseCyp :: Env -> String -> Either String Cyp
-iparseCyp = iparseCypWithMode baseParseMode
-
-
-iparseProp :: Env -> String -> Either String Prop
-iparseProp env x = do
-    cyp <- iparseCypWithMode mode env' x
-    case cyp of
--- XXX: handle ".=." differently! -> Const; Exclude ".=." from inner terms ...
-        Application (Application (Variable ".=.") lhs) rhs -> Right $ Prop lhs rhs
-        _ -> Left $ "Term '" ++ x ++ "' is not a proposition"
-  where
-    env' = env { constants = ".=" : constants env }
-    mode = baseParseMode { fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol ".=.") : baseFixities }
-
 splitStringAt :: Eq a => [a] -> [a] -> [a] -> [[a]]
 splitStringAt _ [] h 
 	| h == [] = []
@@ -493,6 +472,30 @@ translateLiteral (PrimString c) = c
 translateName :: Name -> String
 translateName (Ident s) = s
 translateName (Symbol s) = s
+
+
+{- Parser for the expression syntax ---------------------------------}
+
+iparseCypWithMode :: ParseMode -> Env -> String -> Either String Cyp
+iparseCypWithMode mode env s = do
+    p <- iparseExp mode s
+    translateExp tv p
+  where tv x = Right $ if x `elem` constants env then Const x else Variable x
+
+iparseCyp :: Env -> String -> Either String Cyp
+iparseCyp = iparseCypWithMode baseParseMode
+
+
+iparseProp :: Env -> String -> Either String Prop
+iparseProp env x = do
+    cyp <- iparseCypWithMode mode env' x
+    case cyp of
+-- XXX: handle ".=." differently! -> Const; Exclude ".=." from inner terms ...
+        Application (Application (Variable ".=.") lhs) rhs -> Right $ Prop lhs rhs
+        _ -> Left $ "Term '" ++ x ++ "' is not a proposition"
+  where
+    env' = env { constants = ".=" : constants env }
+    mode = baseParseMode { fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol ".=.") : baseFixities }
 
 {- Parser for the outer syntax --------------------------------------}
 
