@@ -392,11 +392,6 @@ readFunc syms pds = do
         f@(ParseFailed _ _ ) -> Left $ show f
     parseFunc _ = Nothing
 
-iparseExp :: ParseMode -> String -> Either String Exp
-iparseExp mode s = case parseExpWithMode mode s of
-    ParseOk p -> Right p
-    f@(ParseFailed _ _) -> Left $ show f
-
 splitStringAt :: Eq a => [a] -> [a] -> [a] -> [[a]]
 splitStringAt _ [] h 
 	| h == [] = []
@@ -484,6 +479,11 @@ translateName (Symbol s) = s
 
 
 {- Parser for the expression syntax ---------------------------------}
+
+iparseExp :: ParseMode -> String -> Either String Exp
+iparseExp mode s = case parseExpWithMode mode s of
+    ParseOk p -> Right p
+    f@(ParseFailed _ _) -> Left $ show f
 
 iparseCypWithMode :: ParseMode -> Env -> String -> Either String Cyp
 iparseCypWithMode mode env s = do
