@@ -267,7 +267,7 @@ rewriteAll cyp rules = cyp : concatMap (rewrite cyp) rules'
 computeIndHyps :: Prop -> [Cyp] -> String -> (String, [TConsArg]) -> Either String ([Prop], [String])
 computeIndHyps prop step over con = do
     inst <- maybe (Left "Equations do not match induction hypothesis") Right $
-        matchInductVar prop over $ Prop (head step) (last step)
+        matchInductVar prop $ Prop (head step) (last step)
     (recVars, nonrecVars) <- matchInstWithCon con (stripComb inst)
     let instVars = recVars ++ nonrecVars
     when (nub instVars /= instVars) $
@@ -275,9 +275,9 @@ computeIndHyps prop step over con = do
     let indHyps = map (\v -> substProp prop [(over, Const v)]) recVars
     return (indHyps, instVars)
   where
-    matchInductVar :: Prop -> String -> Prop -> Maybe Cyp
-    matchInductVar pat over prop = do
-        s <- matchProp prop pat []
+    matchInductVar :: Prop -> Prop -> Maybe Cyp
+    matchInductVar pat cyp = do
+        s <- matchProp cyp pat []
         guard $ instOnly over s
         lookup over s
       where instOnly x = all (\(var,inst) -> var == x || Variable var == inst)
