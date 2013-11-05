@@ -8,12 +8,12 @@ declare_sym map
 --Aufpassen bei Infix Application! Kein (x) vergessen, mit x = Infix Application! 
 
 
-lemma ys ++ [y] .=. (y:ys)
-lemma length (xs ++ ys) .=. length xs + length ys
-lemma length (xs ++ ys) .=. length (ys ++ xs)
+axiom ys ++ [y] .=. (y:ys)
+axiom length (xs ++ ys) .=. length xs + length ys
+axiom length (xs ++ ys) .=. length (ys ++ xs)
 
-lemma sum (map length ((map reverse xs))) .=. sum (map length xs)
-lemma sum (map length ((map f xs))) .=. sum (map length xs)
+axiom sum (map length ((map reverse xs))) .=. sum (map length xs)
+axiom sum (map length ((map f xs))) .=. sum (map length xs)
 
 
 length (reverse:reverses) = 1 + length reverses

@@ -558,7 +558,7 @@ masterParsers =
 
 axiomParser :: Parsec [Char] () ParseDeclTree
 axiomParser =
-    do  keyword "lemma" 
+    do  keyword "axiom"
         result <- many1 (noneOf "\r\n")
         eol
         return (Axiom result)
