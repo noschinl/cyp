@@ -80,7 +80,7 @@ data Env = Env
     }
     deriving Show
 
-data DataType = DataType String [(String, TCyp)] -- name cases
+data DataType = DataType String [(String, [TConsArg])] -- name cases
     deriving (Show)
 
 data Prop = Prop Cyp Cyp
@@ -98,8 +98,7 @@ data Lemma = Lemma Prop Proof -- Proposition (_ = _), Proof
 data Cyp = Application Cyp Cyp | Const String | Variable String | Literal Literal
     deriving (Show, Eq)
 
-data TCyp = TApplication TCyp TCyp | TConst String | TVariable String | TRec
-    deriving (Show, Eq)
+data TConsArg = TNRec | TRec deriving (Show,Eq)
 
 
 {- Debug tools ------------------------------------------------------}
@@ -176,7 +175,7 @@ checkProof env (ParseLemma prop (ParseInduction dtRaw overRaw casesRaw)) = do
     validateCases dt over casesRaw
   where
     lookupCons name (DataType _ conss) = maybe (Left $ "Invalid case '" ++ name ++ "'") Right $
-        find (\c -> fst c == name) conss >>= return . snd
+        find (\c -> fst c == name) conss >>= return
 
     validateCase dt over (name, steps) = mapLeft (\x -> "Error in case '" ++ name ++"':\n    " ++ x) $do
         cons <- lookupCons name dt
@@ -265,11 +264,11 @@ rewriteAll :: Cyp -> [Prop] -> [Cyp]
 rewriteAll cyp rules = cyp : concatMap (rewrite cyp) rules'
     where rules' = rules ++ map (\(Prop l r) -> Prop r l) rules
 
-computeIndHyps :: Prop -> [Cyp] -> String -> TCyp -> Either String ([Prop], [String])
-computeIndHyps prop step over cons = do
+computeIndHyps :: Prop -> [Cyp] -> String -> (String, [TConsArg]) -> Either String ([Prop], [String])
+computeIndHyps prop step over con = do
     inst <- maybe (Left "Equations do not match induction hypothesis") Right $
         matchInductVar prop over $ Prop (head step) (last step)
-    (recVars, nonrecVars) <- matchInstWithCons cons inst
+    (recVars, nonrecVars) <- matchInstWithCon con (stripComb inst)
     let instVars = recVars ++ nonrecVars
     when (nub instVars /= instVars) $
         Left "The induction variables must be distinct!"
@@ -283,16 +282,17 @@ computeIndHyps prop step over cons = do
         lookup over s
       where instOnly x = all (\(var,inst) -> var == x || Variable var == inst)
 
-    matchInstWithCons :: TCyp -> Cyp -> Either String ([String], [String])
-    matchInstWithCons (TApplication tf ta) (Application f a) = do
-        (recVarsA, nonrecVarsA) <- matchInstWithCons ta a
-        (recVarsF, nonrecVarsF) <- matchInstWithCons tf f
-        return (recVarsA ++ recVarsF, nonrecVarsA ++ nonrecVarsF)
-    matchInstWithCons (TConst tc) (Const c) =
-        if tc == c then return ([], []) else Left "Equations and case do not match"
-    matchInstWithCons (TVariable _) (Variable v) = return ([], [v])
-    matchInstWithCons TRec (Variable v) = return ([v], [])
-    matchInstWithCons tcyp cyp = Left $ "Equations and case do not match: " ++ show tcyp ++ " vs. " ++ show cyp
+    matchInstWithCon :: (String, [TConsArg]) -> (Cyp, [Cyp]) -> Either String ([String], [String])
+    matchInstWithCon (conName, conArgs) (f, args)
+        | Const conName /= f = Left $ "Equations and case do not match: "
+            ++ show (Const conName) ++ " vs. " ++ show f
+        | otherwise = do
+            let (rec, nonRec) = partition (\(x,_) -> x == TRec) (conArgs `zip` args)
+            liftM2 (,) (traverse (safeFromVar . snd) rec) (traverse (safeFromVar . snd) nonRec)
+        where
+            safeFromVar (Variable v) = return v
+            safeFromVar cyp = Left $ "Term '" ++ show cyp ++ "' used in induction is not a variable."
+
 
 {- Pretty printing --------------------------------------------------}
 
@@ -307,11 +307,6 @@ printInfo (Const a) = a
 
 
 {- Parse inner syntax -----------------------------------------------}
-
-translateToTyp :: Cyp -> TCyp
-translateToTyp (Application cypcurry cyp) = TApplication (translateToTyp cypcurry) (translateToTyp cyp)
-translateToTyp (Variable a) = TVariable a
-translateToTyp (Const a) = TConst a
 
 getConstList :: (ConstList, VariableList) -> ConstList
 getConstList (cons ,_) = cons
@@ -354,44 +349,37 @@ translateLiteral (PrimDouble c) = show c
 translateLiteral (PrimChar c) = [c]
 translateLiteral (PrimString c) = c
 
-stripTComb :: TCyp -> (TCyp, [TCyp])
-stripTComb tcyp = work (tcyp, [])
-  where work (TApplication f a, xs) = work (f, a : xs)
+stripComb :: Cyp -> (Cyp, [Cyp])
+stripComb cyp = work (cyp, [])
+  where work (Application f a, xs) = work (f, a : xs)
         work x = x
-
-listTComb :: TCyp -> [TCyp] -> TCyp
-listTComb f [] = f
-listTComb f (a : as) = listTComb (TApplication f a) as
 
 readDataType :: [ParseDeclTree] -> Either String [DataType]
 readDataType = sequence . mapMaybe parseDataType
   where
     parseDataType (DataDecl s) = Just $ do
         (tycon : dacons) <- traverse parseCons $ splitStringAt "=|" s []
-        tyname <- constName $ fst $ stripTComb tycon
-        dacons' <- traverse (parseDacon  tycon)dacons
+        tyname <- constName $ fst $ stripComb tycon
+        dacons' <- traverse (parseDacon tycon) dacons
         return $ DataType tyname dacons'
     parseDataType _ = Nothing
 
-    parseCons :: String -> Either String TCyp
-    parseCons s = do
-        e <- iparseExp baseParseMode s
-        cyp <- translate (Right . Variable) e
-        return $ translateToTyp cyp
+    parseCons :: String -> Either String Cyp
+    parseCons s = iparseExp baseParseMode s >>= translate (Right . Variable)
 
-    constName (TConst c) = return c
-    constName tcyp = Left $ "Term '" ++ show tcyp ++ "' is not a constant."
+    constName (Const c) = return c
+    constName cyp = Left $ "Term '" ++ show cyp ++ "' is not a constant."
 
-    parseDacon tycon tcyp = do
-        let (con, args) = stripTComb tcyp
+    parseDacon tycon cyp = do
+        let (con, args) = stripComb cyp
         name <- constName con
         args' <- traverse (parseDaconArg tycon) args
-        return (name, listTComb con args')
+        return (name, args')
 
-    parseDaconArg _ TRec = Left $ "Raw data constructor already contains TRec. Please contact author!"
-    parseDaconArg tycon tcyp | tcyp == tycon = return TRec
-    parseDaconArg _ (TApplication _ _) = Left $ "Nested constructors are not allowed."
-    parseDaconArg _ tcyp = return tcyp
+    parseDaconArg tycon cyp | cyp == tycon = return TRec
+    parseDaconArg _ (Application _ _) = Left $ "Nested constructors (apart from direct recursion) are not allowed."
+    parseDaconArg _ (Literal _) = Left $ "Literals not allowed in datatype declarations"
+    parseDaconArg _ _ = return TNRec
 
 readAxiom :: [String] -> [ParseDeclTree] -> Either String [Prop]
 readAxiom consts = sequence . mapMaybe parseAxiom
