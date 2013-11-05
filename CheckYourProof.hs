@@ -13,7 +13,6 @@ import qualified Language.Haskell.Exts.Syntax as Exts
 import Language.Haskell.Exts.Syntax (Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..), Assoc(..))
 import Debug.Trace
 import Text.Show.Pretty (ppShow)
-import qualified Text.PrettyPrint as PP
 import Text.PrettyPrint (comma, fsep, nest, punctuate, quotes, text, (<>), (<+>), ($+$), Doc)
 
 {-
