@@ -309,8 +309,8 @@ printInfo (Const a) = a
 {- Parse inner syntax -----------------------------------------------}
 
 translate :: (String -> Either String Cyp) -> Exp -> Either String Cyp
-translate f (Var v) = f $ translateQName v
-translate _ (Con c) = Right $ Const $ translateQName c
+translate f (Var v) = f =<< translateQName v
+translate _ (Con c) = Const <$> translateQName c
 translate _ (Lit l) = Right $ Literal l
 translate f (InfixApp e1 op e2) =
     translateQOp f op `mApp` translate f e1 `mApp` translate f e2
@@ -322,20 +322,20 @@ translate f (List l) = foldr (\e es -> Right (Const ":") `mApp` translate f e `m
 translate _ e = Left $ "Unsupported expression syntax used: " ++ show e
 
 translateQOp :: (String -> Either String Cyp) -> QOp -> Either String Cyp
-translateQOp _ (QConOp op) = Right $ Const $ translateQName op
-translateQOp f (QVarOp op) = f $ translateQName op
+translateQOp _ (QConOp op) = Const <$> translateQName op
+translateQOp f (QVarOp op) = f =<< translateQName op
 
 
-translateQName :: QName -> String
-translateQName (Qual (ModuleName m) (Ident n)) = m ++ "." ++ n
-translateQName (Qual (ModuleName m) (Symbol n)) = m ++ "." ++ n
-translateQName (UnQual (Ident n)) = n
-translateQName (UnQual (Symbol n)) = n
-translateQName (Special UnitCon) = "()"
-translateQName (Special ListCon) = "[]"
-translateQName (Special FunCon) = "->"
-translateQName (Special Cons) = ":"
-translateQName _ = ""
+translateQName :: QName -> Either String String
+translateQName (Qual (ModuleName m) (Ident n)) = return $ m ++ "." ++ n
+translateQName (Qual (ModuleName m) (Symbol n)) = return $ m ++ "." ++ n
+translateQName (UnQual (Ident n)) = return n
+translateQName (UnQual (Symbol n)) = return n
+translateQName (Special UnitCon) = return "()"
+translateQName (Special ListCon) = return "[]"
+translateQName (Special FunCon) = return "->"
+translateQName (Special Cons) = return ":"
+translateQName q = Left $ "Unsupported QName '" ++ show q ++ "'."
 
 translateLiteral :: Literal -> String
 translateLiteral (Char c) = [c]
@@ -437,10 +437,11 @@ readFunc syms pds = do
     -- PNeg?
     translatePat (Exts.PNPlusK _ _) = Left "n+k patterns are not supported"
     translatePat (Exts.PInfixApp p1 qn p2) =
-        (Right $ Const $ translateQName qn) `mApp` translatePat p1 `mApp` translatePat p2
+        (Const <$> translateQName qn) `mApp` translatePat p1 `mApp` translatePat p2
     translatePat (Exts.PApp qn ps) = do
         cs <- traverse translatePat ps
-        return $ listComb (Const $ translateQName qn) cs
+        n <- translateQName qn
+        return $ listComb (Const n) cs
     translatePat (Exts.PTuple _) = Left "tuple patterns are not supported"
     translatePat (Exts.PList ps) = foldr (\p cs -> Right (Const ":") `mApp` translatePat p `mApp` cs) (Right $ Const "[]") ps
     translatePat (Exts.PParen p) = translatePat p
