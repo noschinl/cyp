@@ -1,4 +1,4 @@
-module CheckYourProof where
+module Main where
 import Data.Char
 import Control.Applicative ((<$>))
 import Control.Monad
@@ -13,7 +13,9 @@ import qualified Language.Haskell.Exts.Syntax as Exts
 import Language.Haskell.Exts.Syntax (Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..), Assoc(..))
 import Debug.Trace
 import Text.Show.Pretty (ppShow)
-import Text.PrettyPrint (comma, fsep, nest, punctuate, quotes, text, vcat, (<>), (<+>), ($+$), Doc)
+import Text.PrettyPrint (comma, fsep, nest, punctuate, quotes, render, text, vcat, (<>), (<+>), ($+$), Doc)
+import System.Environment (getArgs, getProgName)
+import System.Exit (exitFailure, exitSuccess)
 
 {-
 
@@ -230,6 +232,24 @@ substProp (Prop l r) s = Prop (subst l s) (subst r s)
 
 
 {- Main -------------------------------------------------------------}
+
+main :: IO ()
+main = do
+    args <- getArgs
+    when (length args /= 2) $ do
+        prog <- getProgName
+        putStrLn $ "Syntax: " ++ prog ++ "<background.thy> <proof.prf>"
+        exitFailure
+    let [thyFile, proofFile] = args
+    result <- proof thyFile proofFile
+    case result of
+        Left err -> do
+            putStrLn $ render err
+            exitFailure
+        Right () -> do
+            putStrLn "Congratulations! You correctly proved all goals!"
+            exitSuccess
+
 
 proof :: FilePath-> FilePath -> IO (Err ())
 proof masterFile studentFile = do
