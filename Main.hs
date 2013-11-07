@@ -310,9 +310,8 @@ checkProof env (ParseLemma aprop (ParseInduction dtRaw overRaw casesRaw)) = errC
     validateCase :: DataType -> String -> (String, [ATerm]) -> Err ()
     validateCase dt over (name, steps) = errCtxt (text "Case" <+> quotes (text name)) $ do
         cons <- lookupCons name dt
-        (indHyps, fixVars) <- computeIndHyps (apropProp aprop) steps over cons
-        let fixedSteps = map (atermMap $ \term -> subst term $ map (\x -> (x, Const x)) fixVars) steps
-        validEquations (indHyps ++ axioms env) fixedSteps
+        indHyps <- computeIndHyps (apropProp aprop) steps over cons
+        validEquations (indHyps ++ axioms env) steps
 
     validateDatatype name = case find (\dt -> getDtName dt == name) (datatypes env) of
         Nothing -> err $ fsep $
@@ -378,7 +377,7 @@ rewritesTo :: [Prop] -> Term -> Term -> Bool
 rewritesTo rules l r = l == r || rewrites l r || rewrites r l
   where rewrites from to = any (\x -> isJust $ match to x []) $ concatMap (rewrite from) rules 
 
-computeIndHyps :: Prop -> [ATerm] -> String -> (String, [TConsArg]) -> Err ([Prop], [String])
+computeIndHyps :: Prop -> [ATerm] -> String -> (String, [TConsArg]) -> Err [Prop]
 computeIndHyps prop step over con = do
     inst <- case matchInductVar prop $ Prop (atermTerm $ head step) (atermTerm $ last step) of
             Nothing -> err $ text "Equations do not match induction hypothesis"
@@ -387,8 +386,7 @@ computeIndHyps prop step over con = do
     let instVars = recVars ++ nonrecVars
     when (nub instVars /= instVars) $
         errStr "The induction variables must be distinct!"
-    let indHyps = map (\v -> substProp prop [(over, Free v)]) recVars
-    return (indHyps, instVars)
+    return $ map (\v -> substProp prop [(over, Free v)]) recVars
   where
     matchInductVar :: Prop -> Prop -> Maybe Term
     matchInductVar pat term = do
