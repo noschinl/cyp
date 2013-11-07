@@ -68,8 +68,8 @@ data ParseDeclTree
 data ParseLemma = ParseLemma AProp ParseProof deriving Show -- Proposition, Proof
 
 data ParseProof
-    = ParseInduction String String [(String, [ACyp])] -- DataTyp, Over, Cases
-    | ParseEquation [ACyp]
+    = ParseInduction String String [(String, [ATerm])] -- DataTyp, Over, Cases
+    | ParseEquation [ATerm]
     deriving Show
 
 type ParseEquations = [String]
@@ -85,20 +85,20 @@ data Env = Env
 data DataType = DataType String [(String, [TConsArg])] -- name cases
     deriving (Show)
 
-data Prop = Prop Cyp Cyp
+data Prop = Prop Term Term
     deriving (Eq, Show) -- lhs, rhs
 
 data Proof
-    = Induction DataType String [(String, [Cyp])] -- typ ,ind var, ...
-    | Equation [Cyp]
+    = Induction DataType String [(String, [Term])] -- typ ,ind var, ...
+    | Equation [Term]
     deriving (Show)
 
 data Lemma = Lemma Prop Proof -- Proposition (_ = _), Proof
     deriving (Show)
 
 
-data Cyp
-    = Application Cyp Cyp
+data Term
+    = Application Term Term
     | Const String
     | Free String -- Free variable
     | Schematic String -- Schematic variable
@@ -106,7 +106,7 @@ data Cyp
     deriving (Show, Eq)
 
 -- Term, annotated with original string representation
-data ACyp = ACyp String Cyp deriving Show
+data ATerm = ATerm String Term deriving Show
 
 data AProp = AProp String Prop deriving Show
 
@@ -149,23 +149,23 @@ eitherToErr (Left x) = err $ foldr ($+$) empty (map text $lines $ show x)
 eitherToErr (Right x) = Right x
 
 
-{- Cyp operations ---------------------------------------------------}
+{- Term operations ---------------------------------------------------}
 
-stripComb :: Cyp -> (Cyp, [Cyp])
-stripComb cyp = work (cyp, [])
+stripComb :: Term -> (Term, [Term])
+stripComb term = work (term, [])
   where work (Application f a, xs) = work (f, a : xs)
         work x = x
 
-listComb :: Cyp -> [Cyp] -> Cyp
+listComb :: Term -> [Term] -> Term
 listComb = foldl Application
 
-mApp :: Monad m => m Cyp -> m Cyp -> m Cyp
+mApp :: Monad m => m Term -> m Term -> m Term
 mApp = liftM2 Application
 
 infixl 1 `mApp`
 infixl 1 `Application`
 
-match :: Cyp -> Cyp -> [(String, Cyp)] -> Maybe [(String, Cyp)]
+match :: Term -> Term -> [(String, Term)] -> Maybe [(String, Term)]
 match (Application f a) (Application f' a') s = match f f' s >>= match a a'
 match t (Schematic v) s = case lookup v s of
     Nothing -> Just $ (v,t) : s
@@ -174,21 +174,21 @@ match term pat s
     | term == pat = Just s
     | otherwise = Nothing
 
-subst :: Cyp -> [(String, Cyp)] -> Cyp
+subst :: Term -> [(String, Term)] -> Term
 subst (Application f a) s = Application (subst f s) (subst a s)
 subst (Schematic v) s = case lookup v s of
       Nothing -> Free v
       Just t -> t
 subst t _ = t
 
-collectFrees :: Cyp -> [String]-> [String]
+collectFrees :: Term -> [String]-> [String]
 collectFrees (Application f a) xs = collectFrees f $ collectFrees a xs
 collectFrees (Const _) xs = xs
 collectFrees (Free v) xs = v : xs
 collectFrees (Literal _) xs = xs
 collectFrees (Schematic _) xs = xs
 
-isFree :: Cyp -> Bool
+isFree :: Term -> Bool
 isFree (Free _) = True
 isFree _ = False
 
@@ -202,13 +202,13 @@ defConsts :: [String]
 defConsts = [symPropEq]
 
 
-{- ACyp and AProp operations-----------------------------------------}
+{- ATerm and AProp operations-----------------------------------------}
 
-acypCyp :: ACyp -> Cyp
-acypCyp (ACyp _ cyp) = cyp
+atermTerm :: ATerm -> Term
+atermTerm (ATerm _ term) = term
 
-acypDoc :: ACyp -> Doc
-acypDoc (ACyp s _) = text s
+atermDoc :: ATerm -> Doc
+atermDoc (ATerm s _) = text s
 
 apropProp :: AProp -> Prop
 apropProp (AProp _ p) = p
@@ -217,16 +217,16 @@ apropDoc :: AProp -> Doc
 apropDoc (AProp s _) = text s
 
 -- Use with care -- should not invalidate representation
-acypMap :: (Cyp -> Cyp) -> ACyp -> ACyp
-acypMap f (ACyp s cyp) = ACyp s (f cyp)
+atermMap :: (Term -> Term) -> ATerm -> ATerm
+atermMap f (ATerm s term) = ATerm s (f term)
 
 
 {- Prop operations --------------------------------------------------}
 
-matchProp :: Prop -> Prop -> [(String, Cyp)] -> Maybe [(String, Cyp)]
+matchProp :: Prop -> Prop -> [(String, Term)] -> Maybe [(String, Term)]
 matchProp (Prop l r) (Prop l' r') = match l l' >=> match r r'
 
-substProp :: Prop -> [(String, Cyp)] -> Prop
+substProp :: Prop -> [(String, Term)] -> Prop
 substProp (Prop l r) s = Prop (subst l s) (subst r s)
 
 
@@ -243,8 +243,8 @@ main = do
     let [thyFile, proofFile] = args
     result <- proof thyFile proofFile
     case result of
-        Left err -> do
-            putStrLn $ render err
+        Left e -> do
+            putStrLn $ render e
             exitFailure
         Right () -> do
             putStrLn "Congratulations! You correctly proved all goals!"
@@ -307,11 +307,11 @@ checkProof env (ParseLemma aprop (ParseInduction dtRaw overRaw casesRaw)) = errC
             <+> (fsep . punctuate comma . map (quotes . text . fst) $ conss))
         Just x -> return x
 
-    validateCase :: DataType -> String -> (String, [ACyp]) -> Err ()
+    validateCase :: DataType -> String -> (String, [ATerm]) -> Err ()
     validateCase dt over (name, steps) = errCtxt (text "Case" <+> quotes (text name)) $ do
         cons <- lookupCons name dt
         (indHyps, fixVars) <- computeIndHyps (apropProp aprop) steps over cons
-        let fixedSteps = map (acypMap $ \cyp -> subst cyp $ map (\x -> (x, Const x)) fixVars) steps
+        let fixedSteps = map (atermMap $ \term -> subst term $ map (\x -> (x, Const x)) fixVars) steps
         validEquations (indHyps ++ axioms env) fixedSteps
 
     validateDatatype name = case find (\dt -> getDtName dt == name) (datatypes env) of
@@ -322,8 +322,8 @@ checkProof env (ParseLemma aprop (ParseInduction dtRaw overRaw casesRaw)) = errC
         Just dt -> Right dt
 
     validateOver s = do
-        cyp <- iparseCyp (defaultToFree $ constants env) s
-        case cyp of
+        term <- iparseTerm (defaultToFree $ constants env) s
+        case term of
             Free v -> return v
             _ -> err $ text "Term" <+> quotes (text s)
                 <+> text "is not a valid induction variable"
@@ -340,22 +340,22 @@ checkProof env (ParseLemma aprop (ParseInduction dtRaw overRaw casesRaw)) = errC
     getDtConss (DataType _ conss) = conss
     getDtName (DataType n _) = n
 
-validEquations :: [Prop] -> [ACyp] -> Err ()
+validEquations :: [Prop] -> [ATerm] -> Err ()
 validEquations _ [] = errStr "Empty equation sequence"
 validEquations _ [_] = Right ()
 validEquations rules (t1:t2:ts)
-    | rewritesTo rules (acypCyp t1) (acypCyp t2) = validEquations rules (t2:ts)
+    | rewritesTo rules (atermTerm t1) (atermTerm t2) = validEquations rules (t2:ts)
     | otherwise = errCtxtStr "Invalid proof step" $
-        err $ acypDoc t1 $+$ text symPropEq $+$ acypDoc t2
+        err $ atermDoc t1 $+$ text symPropEq $+$ atermDoc t2
 
-validEquationProof :: [Prop] -> [ACyp] -> Prop -> Err ()
+validEquationProof :: [Prop] -> [ATerm] -> Prop -> Err ()
 validEquationProof rules eqns aim = do
     validEquations rules eqns
     let (l, r) = (head $ eqns, last $ eqns)
-    let proved = Prop (acypCyp l) (acypCyp $ r)
+    let proved = Prop (atermTerm l) (atermTerm $ r)
     unless (isFixedProp proved aim) $
         err $ text "Proved proposition does not match goal:" `indent`
-            (acypDoc l <+> text symPropEq <+> acypDoc r)
+            (atermDoc l <+> text symPropEq <+> atermDoc r)
 
 isFixedProp :: Prop -> Prop -> Bool
 isFixedProp fixedProp schemProp = isJust $ do
@@ -364,23 +364,23 @@ isFixedProp fixedProp schemProp = isJust $ do
     let schemFrees = collectFrees schemL $ collectFrees schemR $ []
     guard $ all isFree inst && nub inst == inst && null schemFrees
 
-rewriteTop :: Cyp -> Prop -> Maybe Cyp
+rewriteTop :: Term -> Prop -> Maybe Term
 rewriteTop t (Prop lhs rhs) = fmap (subst rhs) $ match t lhs []
 
-rewrite :: Cyp -> Prop -> [Cyp]
+rewrite :: Term -> Prop -> [Term]
 rewrite t@(Application f a) prop =
     maybeToList (rewriteTop t prop)
     ++ map (\x -> Application x a) (rewrite f prop)
     ++ map (Application f) (rewrite a prop)
 rewrite t prop = maybeToList $ rewriteTop t prop
 
-rewritesTo :: [Prop] -> Cyp -> Cyp -> Bool
+rewritesTo :: [Prop] -> Term -> Term -> Bool
 rewritesTo rules l r = l == r || rewrites l r || rewrites r l
   where rewrites from to = any (\x -> isJust $ match to x []) $ concatMap (rewrite from) rules 
 
-computeIndHyps :: Prop -> [ACyp] -> String -> (String, [TConsArg]) -> Err ([Prop], [String])
+computeIndHyps :: Prop -> [ATerm] -> String -> (String, [TConsArg]) -> Err ([Prop], [String])
 computeIndHyps prop step over con = do
-    inst <- case matchInductVar prop $ Prop (acypCyp $ head step) (acypCyp $ last step) of
+    inst <- case matchInductVar prop $ Prop (atermTerm $ head step) (atermTerm $ last step) of
             Nothing -> err $ text "Equations do not match induction hypothesis"
             Just x -> Right x
     (recVars, nonrecVars) <- matchInstWithCon con (stripComb inst)
@@ -390,14 +390,14 @@ computeIndHyps prop step over con = do
     let indHyps = map (\v -> substProp prop [(over, Free v)]) recVars
     return (indHyps, instVars)
   where
-    matchInductVar :: Prop -> Prop -> Maybe Cyp
-    matchInductVar pat cyp = do
-        s <- matchProp cyp pat []
+    matchInductVar :: Prop -> Prop -> Maybe Term
+    matchInductVar pat term = do
+        s <- matchProp term pat []
         guard $ instOnly over s
         lookup over s
       where instOnly x = all (\(var,inst) -> var == x || Free var == inst)
 
-    matchInstWithCon :: (String, [TConsArg]) -> (Cyp, [Cyp]) -> Err ([String], [String])
+    matchInstWithCon :: (String, [TConsArg]) -> (Term, [Term]) -> Err ([String], [String])
     matchInstWithCon (conName, conArgs) (f, args)
         | Const conName /= f = errStr $ "Equations and case do not match: "
             ++ show (Const conName) ++ " vs. " ++ show f
@@ -406,7 +406,7 @@ computeIndHyps prop step over con = do
             liftM2 (,) (traverse (safeFromFree . snd) rec) (traverse (safeFromFree . snd) nonRec)
         where
             safeFromFree (Free v) = return v
-            safeFromFree cyp = errStr $ "Term '" ++ show cyp ++ "' used in induction is not a variable."
+            safeFromFree term = errStr $ "Term '" ++ show term ++ "' used in induction is not a variable."
 
 
 readDataType :: [ParseDeclTree] -> Err [DataType]
@@ -419,19 +419,19 @@ readDataType = sequence . mapMaybe parseDataType
         return $ DataType tyname dacons'
     parseDataType _ = Nothing
 
-    parseCons :: String -> Err Cyp
-    parseCons = iparseCyp (Right . Free)
+    parseCons :: String -> Err Term
+    parseCons = iparseTerm (Right . Free)
 
     constName (Const c) = return c
-    constName cyp = errStr $ "Term '" ++ show cyp ++ "' is not a constant."
+    constName term = errStr $ "Term '" ++ show term ++ "' is not a constant."
 
-    parseDacon tycon cyp = do
-        let (con, args) = stripComb cyp
+    parseDacon tycon term = do
+        let (con, args) = stripComb term
         name <- constName con
         args' <- traverse (parseDaconArg tycon) args
         return (name, args')
 
-    parseDaconArg tycon cyp | cyp == tycon = return TRec
+    parseDaconArg tycon term | term == tycon = return TRec
     parseDaconArg _ (Application _ _) = errStr $ "Nested constructors (apart from direct recursion) are not allowed."
     parseDaconArg _ (Literal _) = errStr $ "Literals not allowed in datatype declarations"
     parseDaconArg _ _ = return TNRec
@@ -452,8 +452,8 @@ readSym :: [ParseDeclTree] -> Err [String]
 readSym = sequence . mapMaybe parseSym
   where
     parseSym (SymDecl s) = Just $ do
-        cyp <- iparseCyp (Right . Const) s
-        case cyp of
+        term <- iparseTerm (Right . Const) s
+        case term of
             Const v -> Right v
             _ -> errStr $ "Expression '" ++ s ++ "' is not a symbol"
     parseSym _ = Nothing
@@ -508,17 +508,17 @@ splitStringAt a (x:xs) h
 printProp :: Prop -> String
 printProp (Prop l r) = printInfo l ++ " = " ++ printInfo r
 
-printInfo :: Cyp -> String
-printInfo (Application cypCurry cyp) = "((" ++ (printInfo cypCurry) ++ ") " ++ (printInfo cyp) ++ ")"
+printInfo :: Term -> String
+printInfo (Application termCurry term) = "((" ++ (printInfo termCurry) ++ ") " ++ (printInfo term) ++ ")"
 printInfo (Literal a) = translateLiteral a
 printInfo (Const a) = a
 printInfo (Free a) = "!" ++ a
 printInfo (Schematic a) = "?" ++ a
 
 
-{- Transform Exp to Cyp ---------------------------------------------}
+{- Transform Exp to Term ---------------------------------------------}
 
-translateExp :: (String -> Err Cyp) -> Exp -> Err Cyp
+translateExp :: (String -> Err Term) -> Exp -> Err Term
 translateExp f (Var v) = f =<< translateQName v
 translateExp _ (Con c) = Const <$> translateQName c
 translateExp _ (Lit l) = Right $ Literal l
@@ -531,7 +531,7 @@ translateExp f (Paren e) = translateExp f e
 translateExp f (List l) = foldr (\e es -> Right (Const ":") `mApp` translateExp f e `mApp` es) (Right $ Const "[]") l
 translateExp _ e = errStr $ "Unsupported expression syntax used: " ++ show e
 
-translatePat :: Exts.Pat -> Err Cyp
+translatePat :: Exts.Pat -> Err Term
 translatePat (Exts.PVar v) = Right $ Schematic $ translateName v
 translatePat (Exts.PLit l) = Right $ Literal l
 -- PNeg?
@@ -549,7 +549,7 @@ translatePat (Exts.PAsPat _ _) = errStr "as patterns are not supported"
 translatePat Exts.PWildCard = errStr "wildcard patterns are not supported"
 translatePat f = errStr $ "unsupported pattern type: " ++ show f
 
-translateQOp :: (String -> Err Cyp) -> QOp -> Err Cyp
+translateQOp :: (String -> Err Term) -> QOp -> Err Term
 translateQOp _ (QConOp op) = Const <$> translateQName op
 translateQOp f (QVarOp op) = f =<< translateQName op
 
@@ -583,35 +583,35 @@ translateName (Symbol s) = s
 
 {- Parser for the expression syntax ---------------------------------}
 
-iparseCypRaw :: ParseMode -> (String -> Err Cyp) -> String -> Err Cyp
-iparseCypRaw mode f s = case parseExpWithMode mode s of
+iparseTermRaw :: ParseMode -> (String -> Err Term) -> String -> Err Term
+iparseTermRaw mode f s = case parseExpWithMode mode s of
     ParseOk p -> translateExp f p
     x@(ParseFailed _ _) -> errStr $ show x
 
-defaultToFree :: [String] -> String -> Err Cyp
+defaultToFree :: [String] -> String -> Err Term
 defaultToFree consts x = return $ if x `elem` consts then Const x else Free x
 
-defaultToSchematic :: [String] -> String -> Err Cyp
+defaultToSchematic :: [String] -> String -> Err Term
 defaultToSchematic consts x = return $ if x `elem` consts then Const x else Schematic x
 
-checkHasPropEq :: Cyp -> Err ()
-checkHasPropEq cyp = when (hasPropEq cyp) $
+checkHasPropEq :: Term -> Err ()
+checkHasPropEq term = when (hasPropEq term) $
     errStr $ "A term may not include the equality symbol '" ++ symPropEq ++ "'."
   where
     hasPropEq (Application f a) = hasPropEq f || hasPropEq a
     hasPropEq (Const c) | c == symPropEq = True
     hasPropEq _ = False
 
-iparseCyp :: (String -> Err Cyp)-> String -> Err Cyp
-iparseCyp f s = do
-    cyp <- iparseCypRaw baseParseMode f s
-    checkHasPropEq cyp
-    return cyp
+iparseTerm :: (String -> Err Term)-> String -> Err Term
+iparseTerm f s = do
+    term <- iparseTermRaw baseParseMode f s
+    checkHasPropEq term
+    return term
 
-iparseProp :: (String -> Err Cyp) -> String -> Err Prop
+iparseProp :: (String -> Err Term) -> String -> Err Prop
 iparseProp f s = do
-    cyp <- iparseCypRaw mode f' s
-    (lhs, rhs) <- case cyp of
+    term <- iparseTermRaw mode f' s
+    (lhs, rhs) <- case term of
         Application (Application (Const c) lhs) rhs | c == symPropEq -> Right (lhs, rhs)
         _ -> errStr $ "Term '" ++ s ++ "' is not a proposition"
     checkHasPropEq lhs
@@ -752,7 +752,7 @@ toEol = do
     eol
     return res
 
-equationsParser :: Parsec [Char] Env [ACyp]
+equationsParser :: Parsec [Char] Env [ATerm]
 equationsParser = do
     eq1 <- equations'
     eq2 <- option [] (try equations')
@@ -764,10 +764,10 @@ equationsParser = do
         ls <- many1 (try (manySpacesOrComment >> string symPropEq >> lineSpaces >> toEol))
         env <- getState
         let eqs = errCtxtStr "Failed to parse expression:" $
-                traverse (\x -> ACyp x <$> iparseCyp (defaultToFree $ constants env) x) (l : ls)
+                traverse (\x -> ATerm x <$> iparseTerm (defaultToFree $ constants env) x) (l : ls)
         toParsec show eqs
 
-caseParser :: Parsec [Char] Env (String, [ACyp])
+caseParser :: Parsec [Char] Env (String, [ATerm])
 caseParser = do
     keywordCase
     manySpacesOrComment
