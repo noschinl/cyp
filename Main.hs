@@ -485,11 +485,12 @@ readFunc syms pds = do
     collectPVars _ = []
 
     parseFunc :: ParseDeclTree -> Maybe (Err (String, [Exts.Pat], Exts.Exp))
-    parseFunc (FunDef s) = Just $ case parseDecl s of
-        ParseOk (Exts.FunBind [Exts.Match _ name pat _ (Exts.UnGuardedRhs rhs) (Exts.BDecls [])])
-            -> Right (translateName name, pat, rhs)
-        ParseOk _ -> errStr $ "Invalid function definition '" ++ s ++ "'."
-        f@(ParseFailed _ _ ) -> errStr $ show f
+    parseFunc (FunDef s) = Just $ errCtxt (text "Parsing function definition" <+> quotes (text s)) $
+        case parseDecl s of
+            ParseOk (Exts.FunBind [Exts.Match _ name pat _ (Exts.UnGuardedRhs rhs) (Exts.BDecls [])])
+                -> Right (translateName name, pat, rhs)
+            ParseOk _ -> errStr "Invalid function definition."
+            f@(ParseFailed _ _ ) -> errStr $ show f
     parseFunc _ = Nothing
 
 splitStringAt :: Eq a => [a] -> [a] -> [a] -> [[a]]
@@ -582,9 +583,10 @@ translateName (Symbol s) = s
 {- Parser for the expression syntax ---------------------------------}
 
 iparseTermRaw :: ParseMode -> (String -> Err Term) -> String -> Err Term
-iparseTermRaw mode f s = case parseExpWithMode mode s of
-    ParseOk p -> translateExp f p
-    x@(ParseFailed _ _) -> errStr $ show x
+iparseTermRaw mode f s = errCtxt (text "Parsing term" <+> quotes (text s)) $
+    case parseExpWithMode mode s of
+        ParseOk p -> translateExp f p
+        x@(ParseFailed _ _) -> errStr $ show x
 
 defaultToFree :: [String] -> String -> Err Term
 defaultToFree consts x = return $ if x `elem` consts then Const x else Free x
