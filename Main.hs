@@ -177,7 +177,7 @@ match term pat s
 subst :: Term -> [(String, Term)] -> Term
 subst (Application f a) s = Application (subst f s) (subst a s)
 subst (Schematic v) s = case lookup v s of
-      Nothing -> Free v
+      Nothing -> Schematic v
       Just t -> t
 subst t _ = t
 
