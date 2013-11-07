@@ -1,0 +1,4 @@
+declare_sym (+)
+declare_sym (++)
+
+axiom xs ++ [x] .=. (x:xs)

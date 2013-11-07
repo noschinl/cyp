@@ -1,0 +1,8 @@
+Lemma: (z:zs) .=. (zs ++ [z])
+
+Proof
+
+    (z:zs)
+    .=. (zs ++ [z])
+
+QED

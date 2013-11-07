@@ -1,0 +1,23 @@
+Lemma: length (xs ++ ys) .=. length xs + length ys
+
+Proof by induction on List xs
+
+Case []
+    length ([] ++ ys)
+    .=. length ys
+
+    length [] + length ys
+    .=. 0 + length ys
+    .=. length ys
+
+Case :
+    length ((x:xs) ++ ys)
+    .=. length (x : (xs ++ ys))
+    .=. 1 + length (xs ++ ys)
+    .=. 1 + (length xs + length ys)
+
+    length (x:xs) + length ys
+    .=. (1 + length xs) + length ys
+    .=. 1 + (length xs + length ys)
+
+QED

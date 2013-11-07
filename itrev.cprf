@@ -1,0 +1,55 @@
+Lemma: itrev xs ys .=. reverse xs ++ ys
+
+Proof by induction on List xs
+
+Case []
+
+    itrev [] ys
+    .=. ys
+
+    reverse [] ++ ys
+    .=. [] ++ ys
+    .=. ys
+
+Case :
+
+    itrev (x:xs) ys
+    .=. itrev xs (x:ys)
+    .=. reverse xs ++ (x:ys)
+
+    reverse (x:xs) ++ ys
+    .=. (reverse xs ++ [x]) ++ ys
+    .=. reverse xs ++ ([x] ++ ys)
+    .=. reverse xs ++ (x : ([] ++ ys))
+    .=. reverse xs ++ (x:ys)
+
+QED
+
+
+Lemma: xs ++ [] .=. xs
+
+Proof by induction on List xs
+
+Case []
+
+    [] ++ []
+    .=. []
+
+Case :
+
+    (x:xs) ++ []
+    .=. x : (xs ++ [])
+    .=. x : xs
+
+QED
+
+
+Lemma: itrev xs [] .=. reverse xs
+
+Proof
+
+    itrev xs []
+    .=. reverse xs ++ []
+    .=. reverse xs
+
+QED
