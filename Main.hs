@@ -238,7 +238,7 @@ main = do
     args <- getArgs
     when (length args /= 2) $ do
         prog <- getProgName
-        putStrLn $ "Syntax: " ++ prog ++ "<background.cthy> <proof.cprf>"
+        putStrLn $ "Syntax: " ++ prog ++ " <background.cthy> <proof.cprf>"
         exitFailure
     let [thyFile, proofFile] = args
     result <- proof thyFile proofFile
