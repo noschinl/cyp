@@ -2,9 +2,9 @@ module Main where
 import Data.Char
 import Control.Applicative ((<$>))
 import Control.Monad
+import Data.Foldable (traverse_)
 import Data.List
 import Data.Maybe
-import Data.Foldable (traverse_)
 import Data.Traversable (traverse)
 import Text.Parsec as Parsec
 import Language.Haskell.Exts.Parser 
@@ -13,7 +13,7 @@ import qualified Language.Haskell.Exts.Syntax as Exts
 import Language.Haskell.Exts.Syntax (Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..), Assoc(..))
 import Debug.Trace
 import Text.Show.Pretty (ppShow)
-import Text.PrettyPrint (comma, fsep, nest, punctuate, quotes, render, text, vcat, (<>), (<+>), ($+$), Doc)
+import Text.PrettyPrint (comma, empty, fsep, nest, punctuate, quotes, render, text, vcat, (<>), (<+>), ($+$), Doc)
 import System.Environment (getArgs, getProgName)
 import System.Exit (exitFailure, exitSuccess)
 
@@ -145,7 +145,7 @@ indent :: Doc -> Doc -> Doc
 indent d1 d2 = d1 $+$ nest 4 d2
 
 eitherToErr :: Show a => Either a b -> Err b
-eitherToErr (Left x) = errStr (show x)
+eitherToErr (Left x) = err $ foldr ($+$) empty (map text $lines $ show x)
 eitherToErr (Right x) = Right x
 
 
