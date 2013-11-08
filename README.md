@@ -24,7 +24,7 @@ This produces a binary `cyp` in the `dist/build/cyp` folder. You can then check 
 
     cyp <background.cthy> <proof.cprf>
 
-where <background.cthy> defines the program and available lemmas and <proof.cprf> contains the proof to be checked.
+where `<background.cthy>` defines the program and available lemmas and `<proof.cprf>` contains the proof to be checked.
 
 
 Known limitations
