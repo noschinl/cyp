@@ -324,7 +324,9 @@ rewritesTo rules l r = l == r || rewrites l r || rewrites r l
 computeIndHyps :: Prop -> [ATerm] -> String -> (String, [TConsArg]) -> Err [Prop]
 computeIndHyps prop step over con = do
     inst <- case matchInductVar prop $ Prop (atermTerm $ head step) (atermTerm $ last step) of
-            Nothing -> err $ text "Equations do not match induction hypothesis"
+            Nothing -> err $ text "Proved proposition does not match subgoal:" `indent`
+                (text "Proposition: " <+> atermDoc (head step) <+> text symPropEq <+> atermDoc (last step))
+
             Just x -> Right x
     (recVars, nonrecVars) <- matchInstWithCon con (stripComb inst)
     let instVars = recVars ++ nonrecVars
