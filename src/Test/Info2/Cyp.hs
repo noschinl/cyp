@@ -215,7 +215,7 @@ proof (mName, mContent) (sName, sContent) = do
     contained props (AProp _ goal) = any (\x -> isJust $ matchProp goal x []) props
 
 processMasterFile :: FilePath -> String -> Err Env
-processMasterFile path content = errCtxtStr "Parsing master file" $ do
+processMasterFile path content = errCtxtStr "Parsing background theory" $ do
     mResult <- eitherToErr $ Parsec.parse masterParser path content
     dts <- readDataType mResult
     syms <- readSym mResult
@@ -226,7 +226,7 @@ processMasterFile path content = errCtxtStr "Parsing master file" $ do
         constants = nub $ defConsts ++ consts, goals = gls }
 
 processProofFile :: Env -> FilePath -> String -> Err [ParseLemma]
-processProofFile env path  content= errCtxtStr "Parsing proof file" $
+processProofFile env path  content= errCtxtStr "Parsing proof" $
     eitherToErr $ Parsec.runParser studentParser env path content
 
 checkProofs :: Env -> [ParseLemma] -> Err [Prop]
