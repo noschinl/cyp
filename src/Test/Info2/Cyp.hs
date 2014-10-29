@@ -1,5 +1,6 @@
 module Test.Info2.Cyp (
   proof
+, proofFile
 , Err
 ) where
 
@@ -195,18 +196,21 @@ substProp (Prop l r) s = Prop (subst l s) (subst r s)
 
 {- Main -------------------------------------------------------------}
 
-proof :: FilePath-> FilePath -> IO (Err ())
-proof masterFile studentFile = do
+proofFile :: FilePath -> FilePath -> IO (Err ())
+proofFile masterFile studentFile = do
     mContent <- readFile masterFile
     sContent <- readFile studentFile
-    return $ do
-        env <- processMasterFile masterFile mContent
-        lemmaStmts <- processProofFile env studentFile sContent
-        results <- checkProofs env lemmaStmts
-        case filter (not . contained results) $ goals env of
-            [] -> return ()
-            xs -> err $ indent (text "The following goals are still open:") $
-                vcat $ map apropDoc xs
+    return $ proof (masterFile, mContent) (studentFile, sContent)
+
+proof :: (String, String) -> (String, String) -> Err ()
+proof (mName, mContent) (sName, sContent) = do
+    env <- processMasterFile mName mContent
+    lemmaStmts <- processProofFile env sName sContent
+    results <- checkProofs env lemmaStmts
+    case filter (not . contained results) $ goals env of
+        [] -> return ()
+        xs -> err $ indent (text "The following goals are still open:") $
+            vcat $ map apropDoc xs
   where
     contained props (AProp _ goal) = any (\x -> isJust $ matchProp goal x []) props
 

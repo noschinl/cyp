@@ -12,8 +12,8 @@ main = do
         prog <- getProgName
         putStrLn $ "Syntax: " ++ prog ++ " <background.cthy> <proof.cprf>"
         exitFailure
-    let [thyFile, proofFile] = args
-    result <- proof thyFile proofFile
+    let [thyFile, prfFile] = args
+    result <- proofFile thyFile prfFile
     case result of
         Left e -> do
             putStrLn $ render e
