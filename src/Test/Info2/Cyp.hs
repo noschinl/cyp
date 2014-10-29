@@ -581,7 +581,7 @@ toParsec f = either (fail . f) return
 
 eol :: Parsec [Char] u ()
 eol = do
-    _ <- try (string "\n\r") <|> try (string "\r\n") <|> string "\n" <|> string "\r"
+    _ <- try (string "\n\r") <|> try (string "\r\n") <|> string "\n" <|> string "\r" <|> (eof >> return "")
         <?> "end of line"
     return ()
 
