@@ -24,12 +24,12 @@ import Text.PrettyPrint (comma, empty, fsep, nest, punctuate, quotes, text, vcat
 data ParseDeclTree
     = DataDecl String
     | SymDecl String
-    | Axiom String
+    | Axiom String String
     | FunDef String
     | Goal String
     deriving Show
 
-data ParseLemma = ParseLemma AProp ParseProof -- Proposition, Proof
+data ParseLemma = ParseLemma String AProp ParseProof -- Proposition, Proof
 
 data ParseProof
     = ParseInduction String String [(String, EqnSeqq ATerm)] -- DataTyp, Over, Cases
@@ -39,7 +39,7 @@ type ParseEquations = [String]
 
 data Env = Env
     { datatypes :: [DataType]
-    , axioms :: [Prop]
+    , axioms :: [Named Prop]
     , constants :: [String]
     , goals :: [AProp]
     }
@@ -50,6 +50,9 @@ data DataType = DataType String [(String, [TConsArg])] -- name cases
 
 data Prop = Prop Term Term
     deriving (Eq, Show) -- lhs, rhs
+
+data Named a = Named String a
+    deriving Show
 
 data Proof
     = Induction DataType String [(String, [Term])] -- typ ,ind var, ...
@@ -193,6 +196,16 @@ eqnSeqqEnds :: EqnSeqq a -> (a,a)
 eqnSeqqEnds (EqnSeqq es Nothing) = eqnSeqEnds es
 eqnSeqqEnds (EqnSeqq es1 (Just es2)) = (fst $ eqnSeqEnds es1, fst $ eqnSeqEnds es2)
 
+
+{- Named operations --------------------------------------------------}
+
+namedVal :: Named a -> a
+namedVal (Named _ a) = a
+
+namedName :: Named a -> String
+namedName (Named name _) = name
+
+
 {- ATerm and AProp operations-----------------------------------------}
 
 atermTerm :: ATerm -> Term
@@ -240,7 +253,7 @@ proof (mName, mContent) (sName, sContent) = do
         xs -> err $ indent (text "The following goals are still open:") $
             vcat $ map apropDoc xs
   where
-    contained props (AProp _ goal) = any (\x -> isJust $ matchProp goal x []) props
+    contained props (AProp _ goal) = any (\x -> isJust $ matchProp goal (namedVal x) []) props
 
 processMasterFile :: FilePath -> String -> Err Env
 processMasterFile path content = errCtxtStr "Parsing background theory" $ do
@@ -257,20 +270,20 @@ processProofFile :: Env -> FilePath -> String -> Err [ParseLemma]
 processProofFile env path  content= errCtxtStr "Parsing proof" $
     eitherToErr $ Parsec.runParser studentParser env path content
 
-checkProofs :: Env -> [ParseLemma] -> Err [Prop]
+checkProofs :: Env -> [ParseLemma] -> Err [Named Prop]
 checkProofs env []  = Right $ axioms env
-checkProofs env (l@(ParseLemma aprop _) : ls) = do
+checkProofs env (l@(ParseLemma name aprop _) : ls) = do
     errCtxt (text "Lemma:" <+> apropDoc aprop) $
         checkProof env l
-    checkProofs (env { axioms = apropProp aprop : axioms env}) ls
+    checkProofs (env { axioms = Named name (apropProp aprop) : axioms env }) ls
 
 mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f = either (Left . f) Right
 
 checkProof :: Env -> ParseLemma -> Err ()
-checkProof env (ParseLemma aprop (ParseEquation eqns)) = errCtxtStr "Equational proof" $
+checkProof env (ParseLemma _ aprop (ParseEquation eqns)) = errCtxtStr "Equational proof" $
     validEquationProof (axioms env) eqns (apropProp aprop)
-checkProof env (ParseLemma aprop (ParseInduction dtRaw overRaw casesRaw)) = errCtxt ctxtMsg $ do
+checkProof env (ParseLemma _ aprop (ParseInduction dtRaw overRaw casesRaw)) = errCtxt ctxtMsg $ do
     dt <- validateDatatype dtRaw
     over <- validateOver overRaw
     validateCases dt over casesRaw
@@ -288,7 +301,7 @@ checkProof env (ParseLemma aprop (ParseInduction dtRaw overRaw casesRaw)) = errC
         cons <- lookupCons name dt
         let (l,r) = eqnSeqqEnds steps
         indHyps <- computeIndHyps (apropProp aprop) (l,r) over cons
-        validEqnSeqq (indHyps ++ axioms env) steps
+        validEqnSeqq (map (Named "IH") indHyps ++ axioms env) steps
         return ()
 
     validateDatatype name = case find (\dt -> getDtName dt == name) (datatypes env) of
@@ -318,7 +331,7 @@ checkProof env (ParseLemma aprop (ParseInduction dtRaw overRaw casesRaw)) = errC
     getDtName (DataType n _) = n
 
 -- XXX: Need to check rule selection!
-validEqnSeq :: [Prop] -> EqnSeq ATerm -> Err (ATerm, ATerm)
+validEqnSeq :: [Named Prop] -> EqnSeq ATerm -> Err (ATerm, ATerm)
 validEqnSeq _ (Single t) = Right (t, t)
 validEqnSeq rules (Step t1 rule es)
     | rewritesTo rules (atermTerm t1) (atermTerm t2) = do
@@ -328,7 +341,7 @@ validEqnSeq rules (Step t1 rule es)
         err $ atermDoc t1 $+$ text symPropEq $+$ atermDoc t2
   where (t2, _) = eqnSeqEnds es
 
-validEqnSeqq :: [Prop] -> EqnSeqq ATerm -> Err (ATerm, ATerm)
+validEqnSeqq :: [Named Prop] -> EqnSeqq ATerm -> Err (ATerm, ATerm)
 validEqnSeqq rules (EqnSeqq es1 Nothing) = validEqnSeq rules es1
 validEqnSeqq rules (EqnSeqq es1 (Just es2)) = do
     (th1,tl1) <- validEqnSeq rules es1
@@ -338,7 +351,7 @@ validEqnSeqq rules (EqnSeqq es1 (Just es2)) = do
         False -> errCtxtStr "Two equation chains don't fit together:" $
             err $ atermDoc tl1 $+$ text symPropEq $+$ atermDoc tl2
 
-validEquationProof :: [Prop] -> EqnSeqq ATerm -> Prop -> Err ()
+validEquationProof :: [Named Prop] -> EqnSeqq ATerm -> Prop -> Err ()
 validEquationProof rules eqns aim = do
     (l,r) <- validEqnSeqq rules eqns
     let proved = Prop (atermTerm l) (atermTerm $ r)
@@ -363,9 +376,10 @@ rewrite t@(Application f a) prop =
     ++ map (Application f) (rewrite a prop)
 rewrite t prop = maybeToList $ rewriteTop t prop
 
-rewritesTo :: [Prop] -> Term -> Term -> Bool
+-- XXX: Need to check rule selection!
+rewritesTo :: [Named Prop] -> Term -> Term -> Bool
 rewritesTo rules l r = l == r || rewrites l r || rewrites r l
-  where rewrites from to = any (\x -> isJust $ match to x []) $ concatMap (rewrite from) rules 
+  where rewrites from to = any (\x -> isJust $ match to x []) $ concatMap (rewrite from) (map namedVal rules)
 
 computeIndHyps :: Prop -> (ATerm, ATerm) -> String -> (String, [TConsArg]) -> Err [Prop]
 computeIndHyps prop (l,r) over con = do
@@ -426,10 +440,10 @@ readDataType = sequence . mapMaybe parseDataType
     parseDaconArg _ (Literal _) = errStr $ "Literals not allowed in datatype declarations"
     parseDaconArg _ _ = return TNRec
 
-readAxiom :: [String] -> [ParseDeclTree] -> Err [Prop]
+readAxiom :: [String] -> [ParseDeclTree] -> Err [Named Prop]
 readAxiom consts = sequence . mapMaybe parseAxiom
   where
-    parseAxiom (Axiom s) = Just $ iparseProp (defaultToSchematic consts) s
+    parseAxiom (Axiom n s) = Just (Named n <$> iparseProp (defaultToSchematic consts) s)
     parseAxiom _ = Nothing
 
 readGoal :: [String] -> [ParseDeclTree] -> Err [AProp]
@@ -449,7 +463,7 @@ readSym = sequence . mapMaybe parseSym
     parseSym _ = Nothing
 
 
-readFunc :: [String] -> [ParseDeclTree] -> Err ([Prop], [String])
+readFunc :: [String] -> [ParseDeclTree] -> Err ([Named Prop], [String])
 readFunc syms pds = do
     rawDecls <- sequence . mapMaybe parseFunc $ pds
     let syms' = syms ++ map (\(sym, _, _) -> sym) rawDecls
@@ -457,11 +471,11 @@ readFunc syms pds = do
     return (props, syms')
   where
 
-    declToProp :: [String] -> (String, [Exts.Pat], Exts.Exp) -> Err Prop
+    declToProp :: [String] -> (String, [Exts.Pat], Exts.Exp) -> Err (Named Prop)
     declToProp consts (funSym, pats, rawRhs) = do
         tPat <- traverse translatePat pats
         rhs <- translateExp tv rawRhs
-        return $ Prop (listComb (Const funSym) tPat) rhs
+        return $ Named ("def " ++ funSym) $ Prop (listComb (Const funSym) tPat) rhs
       where
         pvars = concatMap collectPVars pats
         tv s | s `elem` pvars = return $ Schematic s
@@ -627,6 +641,13 @@ eol = do
         <?> "end of line"
     return ()
 
+idParser :: Parsec [Char] u String
+idParser = do
+    c <- lower
+    cs <- many (char '_' <|> alphaNum)
+    lineSpaces
+    return (c:cs)
+
 commentParser :: Parsec [Char] u ()
 commentParser =
     do  _ <- string "--"
@@ -661,7 +682,12 @@ keywordToEolParser s f =
         return (f result)
 
 axiomParser :: Parsec [Char] () ParseDeclTree
-axiomParser = keywordToEolParser "axiom" Axiom
+axiomParser = do
+    keyword "axiom"
+    name <- idParser
+    char ':'
+    xs <- trim <$> toEol
+    return $ Axiom name xs
 
 dataParser :: Parsec [Char] () ParseDeclTree
 dataParser = keywordToEolParser "data" DataDecl
@@ -708,12 +734,14 @@ propParser = do
 
 lemmaParser :: Parsec [Char] Env ParseLemma
 lemmaParser =
-    do  keyword "Lemma:"
+    do  keyword "Lemma"
+        name <- option "" idParser
+        char ':'
         aprop <- propParser
         manySpacesOrComment
         prf <- inductionProofParser <|> equationProofParser
         manySpacesOrComment
-        return $ ParseLemma aprop prf
+        return $ ParseLemma name aprop prf
 
 studentParser ::  Parsec [Char] Env [ParseLemma]
 studentParser =
