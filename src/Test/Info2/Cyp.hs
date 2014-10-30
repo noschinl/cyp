@@ -5,12 +5,13 @@ module Test.Info2.Cyp (
 ) where
 
 import Data.Char
-import Control.Applicative ((<$>))
+import Control.Applicative (pure, (<$>), (<*>))
 import Control.Monad
-import Data.Foldable (traverse_)
+import Data.Foldable (Foldable, foldMap, traverse_)
 import Data.List
 import Data.Maybe
-import Data.Traversable (traverse)
+import Data.Monoid (mappend)
+import Data.Traversable (Traversable, traverse)
 import Text.Parsec as Parsec
 import Language.Haskell.Exts.Parser 
 import Language.Haskell.Exts.Fixity
@@ -28,12 +29,11 @@ data ParseDeclTree
     | Goal String
     deriving Show
 
-data ParseLemma = ParseLemma AProp ParseProof deriving Show -- Proposition, Proof
+data ParseLemma = ParseLemma AProp ParseProof -- Proposition, Proof
 
 data ParseProof
-    = ParseInduction String String [(String, [ATerm])] -- DataTyp, Over, Cases
-    | ParseEquation [ATerm]
-    deriving Show
+    = ParseInduction String String [(String, EqnSeqq ATerm)] -- DataTyp, Over, Cases
+    | ParseEquation (EqnSeqq ATerm)
 
 type ParseEquations = [String]
 
@@ -59,7 +59,6 @@ data Proof
 data Lemma = Lemma Prop Proof -- Proposition (_ = _), Proof
     deriving (Show)
 
-
 data Term
     = Application Term Term
     | Const String
@@ -67,6 +66,9 @@ data Term
     | Schematic String -- Schematic variable
     | Literal Literal
     deriving (Show, Eq)
+
+data EqnSeq a = Single a | Step a String (EqnSeq a)
+data EqnSeqq a = EqnSeqq (EqnSeq a) (Maybe (EqnSeq a))
 
 -- Term, annotated with original string representation
 data ATerm = ATerm String Term deriving Show
@@ -165,6 +167,32 @@ defConsts :: [String]
 defConsts = [symPropEq]
 
 
+{- Equation sequences ------------------------------------------------}
+
+instance Foldable EqnSeq where
+    foldMap f (Single x) = f x
+    foldMap f (Step x y es) = f x `mappend` foldMap f es
+
+instance Functor EqnSeq where
+    fmap f (Single x) = Single (f x)
+    fmap f (Step x y es) = Step (f x) y (fmap f es)
+
+instance Traversable EqnSeq where
+    traverse f (Single x) = Single <$> f x
+    traverse f (Step x y es) = Step <$> f x <*> pure y <*> traverse f es
+
+eqnSeqFromList :: a -> [(String,a)] -> EqnSeq a
+eqnSeqFromList a [] = Single a
+eqnSeqFromList a ((b', a') : bas) = Step a b' (eqnSeqFromList a' bas)
+
+eqnSeqEnds :: EqnSeq a -> (a,a)
+eqnSeqEnds (Single x) = (x,x)
+eqnSeqEnds (Step a _ es) = (a, snd $ eqnSeqEnds es)
+
+eqnSeqqEnds :: EqnSeqq a -> (a,a)
+eqnSeqqEnds (EqnSeqq es Nothing) = eqnSeqEnds es
+eqnSeqqEnds (EqnSeqq es1 (Just es2)) = (fst $ eqnSeqEnds es1, fst $ eqnSeqEnds es2)
+
 {- ATerm and AProp operations-----------------------------------------}
 
 atermTerm :: ATerm -> Term
@@ -255,11 +283,13 @@ checkProof env (ParseLemma aprop (ParseInduction dtRaw overRaw casesRaw)) = errC
             <+> (fsep . punctuate comma . map (quotes . text . fst) $ conss))
         Just x -> return x
 
-    validateCase :: DataType -> String -> (String, [ATerm]) -> Err ()
+    validateCase :: DataType -> String -> (String, EqnSeqq ATerm) -> Err ()
     validateCase dt over (name, steps) = errCtxt (text "Case" <+> quotes (text name)) $ do
         cons <- lookupCons name dt
-        indHyps <- computeIndHyps (apropProp aprop) steps over cons
-        validEquations (indHyps ++ axioms env) steps
+        let (l,r) = eqnSeqqEnds steps
+        indHyps <- computeIndHyps (apropProp aprop) (l,r) over cons
+        validEqnSeqq (indHyps ++ axioms env) steps
+        return ()
 
     validateDatatype name = case find (\dt -> getDtName dt == name) (datatypes env) of
         Nothing -> err $ fsep $
@@ -287,18 +317,30 @@ checkProof env (ParseLemma aprop (ParseInduction dtRaw overRaw casesRaw)) = errC
     getDtConss (DataType _ conss) = conss
     getDtName (DataType n _) = n
 
-validEquations :: [Prop] -> [ATerm] -> Err ()
-validEquations _ [] = errStr "Empty equation sequence"
-validEquations _ [_] = Right ()
-validEquations rules (t1:t2:ts)
-    | rewritesTo rules (atermTerm t1) (atermTerm t2) = validEquations rules (t2:ts)
+-- XXX: Need to check rule selection!
+validEqnSeq :: [Prop] -> EqnSeq ATerm -> Err (ATerm, ATerm)
+validEqnSeq _ (Single t) = Right (t, t)
+validEqnSeq rules (Step t1 rule es)
+    | rewritesTo rules (atermTerm t1) (atermTerm t2) = do
+        (_, tLast) <- validEqnSeq rules es
+        return (t1, tLast)
     | otherwise = errCtxtStr "Invalid proof step" $
         err $ atermDoc t1 $+$ text symPropEq $+$ atermDoc t2
+  where (t2, _) = eqnSeqEnds es
 
-validEquationProof :: [Prop] -> [ATerm] -> Prop -> Err ()
+validEqnSeqq :: [Prop] -> EqnSeqq ATerm -> Err (ATerm, ATerm)
+validEqnSeqq rules (EqnSeqq es1 Nothing) = validEqnSeq rules es1
+validEqnSeqq rules (EqnSeqq es1 (Just es2)) = do
+    (th1,tl1) <- validEqnSeq rules es1
+    (th2,tl2) <- validEqnSeq rules es1
+    case atermTerm tl1 == atermTerm tl2 of
+        True -> return (th1, th2)
+        False -> errCtxtStr "Two equation chains don't fit together:" $
+            err $ atermDoc tl1 $+$ text symPropEq $+$ atermDoc tl2
+
+validEquationProof :: [Prop] -> EqnSeqq ATerm -> Prop -> Err ()
 validEquationProof rules eqns aim = do
-    validEquations rules eqns
-    let (l, r) = (head $ eqns, last $ eqns)
+    (l,r) <- validEqnSeqq rules eqns
     let proved = Prop (atermTerm l) (atermTerm $ r)
     unless (isFixedProp proved aim) $
         err $ text "Proved proposition does not match goal:" `indent`
@@ -325,11 +367,11 @@ rewritesTo :: [Prop] -> Term -> Term -> Bool
 rewritesTo rules l r = l == r || rewrites l r || rewrites r l
   where rewrites from to = any (\x -> isJust $ match to x []) $ concatMap (rewrite from) rules 
 
-computeIndHyps :: Prop -> [ATerm] -> String -> (String, [TConsArg]) -> Err [Prop]
-computeIndHyps prop step over con = do
-    inst <- case matchInductVar prop $ Prop (atermTerm $ head step) (atermTerm $ last step) of
+computeIndHyps :: Prop -> (ATerm, ATerm) -> String -> (String, [TConsArg]) -> Err [Prop]
+computeIndHyps prop (l,r) over con = do
+    inst <- case matchInductVar prop $ Prop (atermTerm $ l) (atermTerm $ r) of
             Nothing -> err $ text "Proved proposition does not match subgoal:" `indent`
-                (text "Proposition: " <+> atermDoc (head step) <+> text symPropEq <+> atermDoc (last step))
+                (text "Proposition: " <+> atermDoc l <+> text symPropEq <+> atermDoc r)
 
             Just x -> Right x
     (recVars, nonrecVars) <- matchInstWithCon con (stripComb inst)
@@ -704,22 +746,38 @@ toEol1 = do
         [] -> unexpected "missing text before eol or comment"
         _ -> return cs
 
-equationsParser :: Parsec [Char] Env [ATerm]
+byRuleParser :: Parsec [Char] u String
+byRuleParser = do
+    char '(' >> lineSpaces
+    keyword "by"
+    cs <- trim <$> manyTill (noneOf "\r\n") (char ')')
+    lineSpaces
+    return cs
+
+equationsParser :: Parsec [Char] Env (EqnSeqq ATerm)
 equationsParser = do
     eq1 <- equations'
-    eq2 <- option [] (try equations')
-    return $ eq1 ++ reverse eq2
+    eq2 <- optionMaybe (try equations')
+    return $ EqnSeqq eq1 eq2
   where
     equations' = do
         spaces
-        l <- toEol
-        ls <- many1 (try (manySpacesOrComment >> string symPropEq >> lineSpaces >> toEol))
+        l <- toEol1
+        ls <- many1 (try eqnStep)
         env <- getState
         let eqs = errCtxtStr "Failed to parse expression:" $
-                traverse (\x -> ATerm x <$> iparseTerm (defaultToFree $ constants env) x) (l : ls)
+                traverse (\x -> ATerm x <$> iparseTerm (defaultToFree $ constants env) x) $
+                eqnSeqFromList l ls
         toParsec show eqs
+    eqnStep = do
+        manySpacesOrComment
+        rule <- byRuleParser
+        string symPropEq
+        lineSpaces
+        x <- toEol1
+        return (rule, x)
 
-caseParser :: Parsec [Char] Env (String, [ATerm])
+caseParser :: Parsec [Char] Env (String, EqnSeqq ATerm)
 caseParser = do
     keywordCase
     manySpacesOrComment
