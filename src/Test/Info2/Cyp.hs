@@ -7,7 +7,7 @@ module Test.Info2.Cyp (
 import Data.Char
 import Control.Applicative (pure, (<$>), (<*>))
 import Control.Monad
-import Data.Foldable (Foldable, foldMap, traverse_)
+import Data.Foldable (Foldable, foldMap, for_, traverse_)
 import Data.List
 import Data.Maybe
 import Data.Monoid (mappend)
@@ -31,8 +31,15 @@ data ParseDeclTree
 
 data ParseLemma = ParseLemma String AProp ParseProof -- Proposition, Proof
 
+data ParseCase = ParseCase
+    { pcCons :: String
+    , pcToShow :: AProp
+    , pcIndHyps :: [Named AProp]
+    , pcEqns :: EqnSeqq ATerm
+    }
+
 data ParseProof
-    = ParseInduction String String [(String, EqnSeqq ATerm)] -- DataTyp, Over, Cases
+    = ParseInduction String String [ParseCase] -- DataTyp, Over, Cases
     | ParseEquation (EqnSeqq ATerm)
 
 type ParseEquations = [String]
@@ -93,6 +100,7 @@ tracePrettyA x = tracePretty x x
 
 tracePrettyF :: Show b => (a -> b) -> a -> a
 tracePrettyF f x = tracePretty (f x) x
+
 
 {- Error handling combinators ---------------------------------------}
 
@@ -199,6 +207,9 @@ eqnSeqqEnds (EqnSeqq es1 (Just es2)) = (fst $ eqnSeqEnds es1, fst $ eqnSeqEnds e
 
 {- Named operations --------------------------------------------------}
 
+instance Functor Named where
+    fmap f (Named n x) = Named n (f x)
+
 namedVal :: Named a -> a
 namedVal (Named _ a) = a
 
@@ -296,13 +307,26 @@ checkProof env (ParseLemma _ aprop (ParseInduction dtRaw overRaw casesRaw)) = er
             <+> (fsep . punctuate comma . map (quotes . text . fst) $ conss))
         Just x -> return x
 
-    validateCase :: DataType -> String -> (String, EqnSeqq ATerm) -> Err ()
-    validateCase dt over (name, steps) = errCtxt (text "Case" <+> quotes (text name)) $ do
-        cons <- lookupCons name dt
-        let (l,r) = eqnSeqqEnds steps
-        indHyps <- computeIndHyps (apropProp aprop) (l,r) over cons
-        validEqnSeqq (map (Named "IH") indHyps ++ axioms env) steps
+    validateCase :: DataType -> String -> ParseCase -> Err ()
+    validateCase dt over pc = errCtxt (text "Case" <+> quotes (text $ pcCons pc)) $ do
+        cons <- lookupCons (pcCons pc) dt
+        let (l,r) = eqnSeqqEnds $ pcEqns pc
+        (indHyps, instVars) <- computeIndHyps (apropProp aprop) (l,r) over cons
+        userHyps <- checkPcHyps instVars indHyps $ pcIndHyps pc
+        validEqnSeqq (userHyps ++ axioms env) $ pcEqns pc
         return ()
+
+    checkPcHyps :: [String] -> [Prop] -> [Named AProp] -> Err [Named Prop]
+    checkPcHyps instVars indHyps pcHyps = do
+        let inst = map (\v -> (v, Free v)) instVars
+        let userHyps = map (fmap (flip substProp inst . apropProp)) $ pcHyps
+        for_ userHyps $ \(Named name prop) -> case prop `elem` indHyps of
+            True -> return ()
+            False -> err $ text $ "Induction hypothesis " ++ name ++ " is not valid"
+        return userHyps
+
+    filterHyps :: [Prop] -> [Named Prop] -> [Named Prop]
+    filterHyps hyps = filter (\x -> namedVal x `elem` hyps)
 
     validateDatatype name = case find (\dt -> getDtName dt == name) (datatypes env) of
         Nothing -> err $ fsep $
@@ -324,7 +348,7 @@ checkProof env (ParseLemma _ aprop (ParseInduction dtRaw overRaw casesRaw)) = er
             Just (name, _) -> errStr $ "Missing case '" ++ name ++ "'"
         traverse_ (validateCase dt over) cases
       where
-        caseNames = map fst cases
+        caseNames = map pcCons cases
         missingCase = find (\(name, _) -> name `notElem` caseNames) (getDtConss dt)
 
     getDtConss (DataType _ conss) = conss
@@ -388,7 +412,7 @@ rewritesToWith name rules l r = rewritesTo (f rules) l r
   where f = map namedVal . filter (\x -> namedName x == name)
 
 
-computeIndHyps :: Prop -> (ATerm, ATerm) -> String -> (String, [TConsArg]) -> Err [Prop]
+computeIndHyps :: Prop -> (ATerm, ATerm) -> String -> (String, [TConsArg]) -> Err ([Prop], [String])
 computeIndHyps prop (l,r) over con = do
     inst <- case matchInductVar prop $ Prop (atermTerm $ l) (atermTerm $ r) of
             Nothing -> err $ text "Proved proposition does not match subgoal:" `indent`
@@ -399,7 +423,7 @@ computeIndHyps prop (l,r) over con = do
     let instVars = recVars ++ nonrecVars
     when (nub instVars /= instVars) $
         errStr "The induction variables must be distinct!"
-    return $ map (\v -> substProp prop [(over, Free v)]) recVars
+    return $ (map (\v -> substProp prop [(over, Free v)]) recVars, instVars)
   where
     matchInductVar :: Prop -> Prop -> Maybe Term
     matchInductVar pat term = do
@@ -649,11 +673,13 @@ eol = do
     return ()
 
 idParser :: Parsec [Char] u String
-idParser = do
-    c <- lower
-    cs <- many (char '_' <|> alphaNum)
-    lineSpaces
-    return (c:cs)
+idParser = idP <?> "Id"
+  where
+    idP = do
+        c <- lower
+        cs <- many (char '_' <|> alphaNum)
+        lineSpaces
+        return (c:cs)
 
 commentParser :: Parsec [Char] u ()
 commentParser =
@@ -739,12 +765,17 @@ propParser = do
             AProp s <$> iparseProp (defaultToSchematic $ constants env) s
     toParsec show aprop
 
+namedPropParser :: Parsec [Char] Env String -> Parsec [Char] Env (String, AProp)
+namedPropParser p = do
+    name <- option "" p
+    char ':'
+    aprop <- propParser
+    return (name, aprop)
+
 lemmaParser :: Parsec [Char] Env ParseLemma
 lemmaParser =
     do  keyword "Lemma"
-        name <- option "" idParser
-        char ':'
-        aprop <- propParser
+        (name, aprop) <- namedPropParser idParser
         manySpacesOrComment
         prf <- inductionProofParser <|> equationProofParser
         manySpacesOrComment
@@ -812,15 +843,40 @@ equationsParser = do
         x <- toEol1
         return (rule, x)
 
-caseParser :: Parsec [Char] Env (String, EqnSeqq ATerm)
+caseParser :: Parsec [Char] Env ParseCase
 caseParser = do
     keywordCase
     manySpacesOrComment
     cons <- trim <$> toEol
     manySpacesOrComment
+    toShow <- toShowP
+    manySpacesOrComment
+    indHyps <- indHypsP
+    manySpacesOrComment
     eqns <- equationsParser
     manySpacesOrComment
-    return (cons, eqns)
+    return $ ParseCase
+        { pcCons = cons
+        , pcToShow = toShow
+        , pcIndHyps = indHyps
+        , pcEqns = eqns
+        }
+  where
+    toShowP = do
+        keyword "To show"
+        lineSpaces
+        char ':'
+        propParser
+    indHypsP = many $ do
+        hyp <- indHypP
+        manySpacesOrComment
+        return hyp
+    indHypP = do
+        string "IH"
+        spaces
+        (name, prop) <- namedPropParser (many alphaNum)
+        return $ Named (if name == "" then "IH" else "IH " ++ name) prop
+
 
 manySpacesOrComment :: Parsec [Char] u ()
 manySpacesOrComment = skipMany $ (space >> return ()) <|> commentParsers

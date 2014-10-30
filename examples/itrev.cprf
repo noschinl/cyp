@@ -4,6 +4,8 @@ Proof by induction on List xs
 
 Case [] -- base case
 
+    To show: itrev [] ys .=. reverse [] ++ ys
+
                             itrev [] ys
     (by def itrev)      .=. ys
 
@@ -13,11 +15,14 @@ Case [] -- base case
 
 Case :  -- induction step
 
+    To show: itrev (x:xs) ys .=. reverse (x:xs) ++ ys
+    IH 1: itrev xs ys .=. reverse xs ++ ys
+
                             itrev (x:xs) ys
     (by def itrev)      .=. itrev xs (x:ys)
-    (by IH)             .=. reverse xs ++ (x:ys)
+    (by IH 1)           .=. reverse xs ++ (x:ys)
 
-    reverse (x:xs) ++ ys
+                            reverse (x:xs) ++ ys
     (by def reverse)    .=. (reverse xs ++ [x]) ++ ys
     (by app_assoc)      .=. reverse xs ++ ([x] ++ ys)
     (by def ++)         .=. reverse xs ++ (x : ([] ++ ys))
@@ -32,10 +37,15 @@ Proof by induction on List xs
 
 Case []
 
+    To show: [] ++ [] .=. xs
+
                             [] ++ []
     (by def ++)         .=. []
 
 Case :
+
+    To show: (x:xs) ++ [] .=. (x:xs)
+    IH: xs ++ [] .=. xs
 
                             (x:xs) ++ []
     (by def ++)         .=. x : (xs ++ [])

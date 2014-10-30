@@ -3,6 +3,9 @@ Lemma: length (xs ++ ys) .=. length xs + length ys
 Proof by induction on List xs
 
 Case []
+
+    To show: length ([] ++ ys) .=. length [] + length ys
+
                              length ([] ++ ys)
     (by def ++)          .=. length ys
 
@@ -11,6 +14,10 @@ Case []
     (by arith)           .=. length ys
 
 Case :
+
+    To show: length ((x : xs) ++ ys) .=. length (x : xs) + length ys
+    IH: length (xs ++ ys) .=. length xs + length ys
+
                              length ((x:xs) ++ ys)
     (by def ++)          .=. length (x : (xs ++ ys))
     (by def length)      .=. 1 + length (xs ++ ys)
