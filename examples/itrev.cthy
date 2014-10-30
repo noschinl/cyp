@@ -9,6 +9,6 @@ reverse (x:xs) = reverse xs ++ [x]
 [] ++ ys = ys
 (x:xs) ++ ys = x : (xs ++ ys)
 
-axiom (xs ++ ys) ++ zs .=. xs ++ (ys ++ zs)
+axiom app_assoc: (xs ++ ys) ++ zs .=. xs ++ (ys ++ zs)
 
 goal itrev xs [] .=. reverse xs

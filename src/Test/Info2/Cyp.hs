@@ -330,16 +330,19 @@ checkProof env (ParseLemma _ aprop (ParseInduction dtRaw overRaw casesRaw)) = er
     getDtConss (DataType _ conss) = conss
     getDtName (DataType n _) = n
 
--- XXX: Need to check rule selection!
 validEqnSeq :: [Named Prop] -> EqnSeq ATerm -> Err (ATerm, ATerm)
 validEqnSeq _ (Single t) = Right (t, t)
 validEqnSeq rules (Step t1 rule es)
-    | rewritesTo rules (atermTerm t1) (atermTerm t2) = do
+    | rewritesToWith rule rules (atermTerm t1) (atermTerm t2) = do
         (_, tLast) <- validEqnSeq rules es
         return (t1, tLast)
-    | otherwise = errCtxtStr "Invalid proof step" $
-        err $ atermDoc t1 $+$ text symPropEq $+$ atermDoc t2
-  where (t2, _) = eqnSeqEnds es
+    | otherwise = errCtxtStr ("Invalid proof step" ++ noRuleMsg) $
+        err $ atermDoc t1 $+$ text ("(by " ++ rule ++ ") " ++ symPropEq) <+> atermDoc t2
+  where
+    (t2, _) = eqnSeqEnds es
+    noRuleMsg
+        | any (\x -> namedName x == rule) rules = ""
+        | otherwise = " (no rules with name \"" ++ rule ++ "\")"
 
 validEqnSeqq :: [Named Prop] -> EqnSeqq ATerm -> Err (ATerm, ATerm)
 validEqnSeqq rules (EqnSeqq es1 Nothing) = validEqnSeq rules es1
@@ -376,10 +379,14 @@ rewrite t@(Application f a) prop =
     ++ map (Application f) (rewrite a prop)
 rewrite t prop = maybeToList $ rewriteTop t prop
 
--- XXX: Need to check rule selection!
-rewritesTo :: [Named Prop] -> Term -> Term -> Bool
+rewritesTo :: [Prop] -> Term -> Term -> Bool
 rewritesTo rules l r = l == r || rewrites l r || rewrites r l
-  where rewrites from to = any (\x -> isJust $ match to x []) $ concatMap (rewrite from) (map namedVal rules)
+  where rewrites from to = any (\x -> isJust $ match to x []) $ concatMap (rewrite from) rules
+
+rewritesToWith :: String -> [Named Prop] -> Term -> Term -> Bool
+rewritesToWith name rules l r = rewritesTo (f rules) l r
+  where f = map namedVal . filter (\x -> namedName x == name)
+
 
 computeIndHyps :: Prop -> (ATerm, ATerm) -> String -> (String, [TConsArg]) -> Err [Prop]
 computeIndHyps prop (l,r) over con = do

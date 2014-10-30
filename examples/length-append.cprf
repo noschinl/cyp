@@ -4,7 +4,7 @@ Proof by induction on List xs
 
 Case []
                              length ([] ++ ys)
-    (by def length)      .=. length ys
+    (by def ++)          .=. length ys
 
                              length [] + length ys
     (by def length)      .=. 0 + length ys

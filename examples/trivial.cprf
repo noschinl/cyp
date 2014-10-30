@@ -2,7 +2,7 @@ Lemma: (z:zs) .=. (zs ++ [z])
 
 Proof
 
-    (z:zs)
-    .=. (zs ++ [z])
+                        (z:zs)
+    (by app_snoc)   .=. (zs ++ [z])
 
 QED

@@ -1,45 +1,45 @@
-Lemma: itrev xs ys .=. reverse xs ++ ys
+Lemma itrev_rev: itrev xs ys .=. reverse xs ++ ys
 
 Proof by induction on List xs
 
 Case [] -- base case
 
-    itrev [] ys
-    .=. ys
+                            itrev [] ys
+    (by def itrev)      .=. ys
 
     reverse [] ++ ys
-    .=. [] ++ ys
-    .=. ys
+    (by def reverse)    .=. [] ++ ys
+    (by def ++)         .=. ys
 
 Case :  -- inductions step
 
-    itrev (x:xs) ys
-    .=. itrev xs (x:ys)
-    .=. reverse xs ++ (x:ys)
+                            itrev (x:xs) ys
+    (by def itrev)      .=. itrev xs (x:ys)
+    (by IH)             .=. reverse xs ++ (x:ys)
 
     reverse (x:xs) ++ ys
-    .=. (reverse xs ++ [x]) ++ ys
-    .=. reverse xs ++ ([x] ++ ys)
-    .=. reverse xs ++ (x : ([] ++ ys))
-    .=. reverse xs ++ (x:ys)
+    (by def reverse)    .=. (reverse xs ++ [x]) ++ ys
+    (by app_assoc)      .=. reverse xs ++ ([x] ++ ys)
+    (by def ++)         .=. reverse xs ++ (x : ([] ++ ys))
+    (by def ++)         .=. reverse xs ++ (x:ys)
 
 QED
 
 
-Lemma: xs ++ [] .=. xs
+Lemma app_Nil: xs ++ [] .=. xs
 
 Proof by induction on List xs
 
 Case []
 
-    [] ++ []
-    .=. []
+                            [] ++ []
+    (by def ++)         .=. []
 
 Case :
 
-    (x:xs) ++ []
-    .=. x : (xs ++ [])
-    .=. x : xs
+                            (x:xs) ++ []
+    (by def ++)         .=. x : (xs ++ [])
+    (by IH)             .=. x : xs
 
 QED
 
@@ -48,8 +48,8 @@ Lemma: itrev xs [] .=. reverse xs
 
 Proof
 
-    itrev xs []
-    .=. reverse xs ++ []
-    .=. reverse xs
+                            itrev xs []
+    (by itrev_rev)      .=. reverse xs ++ []
+    (by app_Nil)        .=. reverse xs
 
 QED
