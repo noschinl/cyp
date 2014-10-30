@@ -11,7 +11,7 @@ Case [] -- base case
     (by def reverse)    .=. [] ++ ys
     (by def ++)         .=. ys
 
-Case :  -- inductions step
+Case :  -- induction step
 
                             itrev (x:xs) ys
     (by def itrev)      .=. itrev xs (x:ys)
