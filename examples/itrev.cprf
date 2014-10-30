@@ -2,7 +2,7 @@ Lemma: itrev xs ys .=. reverse xs ++ ys
 
 Proof by induction on List xs
 
-Case []
+Case [] -- base case
 
     itrev [] ys
     .=. ys
@@ -11,7 +11,7 @@ Case []
     .=. [] ++ ys
     .=. ys
 
-Case :
+Case :  -- inductions step
 
     itrev (x:xs) ys
     .=. itrev xs (x:ys)

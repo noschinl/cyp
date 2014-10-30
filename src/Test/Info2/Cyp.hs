@@ -581,15 +581,15 @@ toParsec f = either (fail . f) return
 
 eol :: Parsec [Char] u ()
 eol = do
-    _ <- try (string "\n\r") <|> try (string "\r\n") <|> string "\n" <|> string "\r" <|> (eof >> return "")
+    _ <- try (string "\n\r") <|> try (string "\r\n") <|> string "\n" <|> string "\r" -- <|> (eof >> return "")
         <?> "end of line"
     return ()
 
 commentParser :: Parsec [Char] u ()
 commentParser =
-    do  _ <- string "--" 
+    do  _ <- string "--"
         _ <- many (noneOf "\r\n")
-        eol
+        eol <|> eof
         return ()
 longcommentParser :: Parsec [Char] u ()
 longcommentParser =
@@ -615,8 +615,7 @@ masterParsers =
 keywordToEolParser :: String -> (String -> a) -> Parsec [Char] () a
 keywordToEolParser s f =
     do  keyword s
-        result <- trim <$> many1 (noneOf "\r\n")
-        eol
+        result <- trim <$> toEol
         return (f result)
 
 axiomParser :: Parsec [Char] () ParseDeclTree
@@ -633,9 +632,9 @@ symParser = keywordToEolParser "declare_sym" SymDecl
 
 funParser :: Parsec [Char] () ParseDeclTree
 funParser =
-    do  result <- many1 (noneOf "\r\n")
-        eol
-        return (FunDef result)
+    do  c <- noneOf "\r\n"
+        cs <- toEol
+        return (FunDef $ c:cs)
 
 equationProofParser :: Parsec [Char] Env ParseProof
 equationProofParser = do
@@ -649,7 +648,7 @@ inductionProofParser :: Parsec [Char] Env ParseProof
 inductionProofParser =
     do  keyword "Proof by induction on"
         datatype <- many (noneOf " \t")
-        manySpacesOrComment
+        lineSpaces
         over <- toEol
         manySpacesOrComment
         cases <- many1 caseParser
@@ -659,7 +658,7 @@ inductionProofParser =
 
 propParser :: Parsec [Char] Env AProp
 propParser = do
-    s <- trim <$> many (noneOf "\r\n")
+    s <- trim <$> toEol1
     env <- getState
     let aprop = errCtxtStr "Failed to parse expression" $ do
             AProp s <$> iparseProp (defaultToSchematic $ constants env) s
@@ -669,7 +668,6 @@ lemmaParser :: Parsec [Char] Env ParseLemma
 lemmaParser =
     do  keyword "Lemma:"
         aprop <- propParser
-        eol
         manySpacesOrComment
         prf <- inductionProofParser <|> equationProofParser
         manySpacesOrComment
@@ -696,11 +694,15 @@ keywordCase = keyword "Case"
 keywordQED :: Parsec [Char] u ()
 keywordQED = keyword "QED"
 
-toEol :: Parsec [Char] Env String
-toEol = do
-    res <- many1 (noneOf "\r\n")
-    eol
-    return res
+toEol :: Parsec [Char] u String
+toEol = manyTill anyChar (eof <|> try eol <|> try commentParser)
+
+toEol1 :: Parsec [Char] u String
+toEol1 = do
+    cs <- toEol
+    case cs of
+        [] -> unexpected "missing text before eol or comment"
+        _ -> return cs
 
 equationsParser :: Parsec [Char] Env [ATerm]
 equationsParser = do
