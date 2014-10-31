@@ -777,6 +777,14 @@ propParser mode = do
             AProp s <$> iparseProp (mode $ constants env) s
     toParsec show aprop
 
+termParser :: PropParserMode -> Parsec [Char] Env ATerm
+termParser mode = do
+    s <- trim <$> toEol1
+    env <- getState
+    let aprop = errCtxtStr "Failed to parse expression" $ do
+            ATerm s <$> iparseTerm (mode $ constants env) s
+    toParsec show aprop
+
 namedPropParser :: PropParserMode -> Parsec [Char] Env String -> Parsec [Char] Env (String, AProp)
 namedPropParser mode p = do
     name <- option "" p
@@ -840,20 +848,16 @@ equationsParser = do
   where
     equations' = do
         spaces
-        l <- toEol1
-        ls <- many1 (try eqnStep)
-        env <- getState
-        let eqs = errCtxtStr "Failed to parse expression:" $
-                traverse (\x -> ATerm x <$> iparseTerm (defaultToFree $ constants env) x) $
-                eqnSeqFromList l ls
-        toParsec show eqs
+        eq <- termParser defaultToFree
+        eqs <- many1 (try eqnStep)
+        return $ eqnSeqFromList eq eqs
     eqnStep = do
         manySpacesOrComment
         rule <- byRuleParser
         string symPropEq
         lineSpaces
-        x <- toEol1
-        return (rule, x)
+        eq <- termParser defaultToFree
+        return (rule, eq)
 
 caseParser :: Parsec [Char] Env ParseCase
 caseParser = do
