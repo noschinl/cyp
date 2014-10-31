@@ -7,7 +7,7 @@ module Test.Info2.Cyp (
 import Data.Char
 import Control.Applicative (pure, (<$>), (<*>))
 import Control.Monad
-import Data.Foldable (Foldable, foldMap, for_, traverse_)
+import Data.Foldable (Foldable, foldMap, for_)
 import Data.List
 import Data.Maybe
 import Data.Monoid (mappend)
@@ -167,7 +167,7 @@ generalizeExcept vs (Application s t) = Application (generalizeExcept vs s) (gen
 generalizeExcept vs (Free v)
     | v `elem` vs = Free v
     | otherwise = Schematic v
-generalizeExcept vs t = t
+generalizeExcept _ t = t
 
 
 collectFrees :: Term -> [String]-> [String]
@@ -199,7 +199,7 @@ defConsts = [symPropEq]
 
 instance Foldable EqnSeq where
     foldMap f (Single x) = f x
-    foldMap f (Step x y es) = f x `mappend` foldMap f es
+    foldMap f (Step x _ es) = f x `mappend` foldMap f es
 
 instance Functor EqnSeq where
     fmap f (Single x) = Single (f x)
@@ -221,10 +221,6 @@ eqnSeqFromList a ((b', a') : bas) = Step a b' (eqnSeqFromList a' bas)
 eqnSeqEnds :: EqnSeq a -> (a,a)
 eqnSeqEnds (Single x) = (x,x)
 eqnSeqEnds (Step a _ es) = (a, snd $ eqnSeqEnds es)
-
-eqnSeqqEnds :: EqnSeqq a -> (a,a)
-eqnSeqqEnds (EqnSeqq es Nothing) = eqnSeqEnds es
-eqnSeqqEnds (EqnSeqq es1 (Just es2)) = (fst $ eqnSeqEnds es1, fst $ eqnSeqEnds es2)
 
 
 {- Named operations --------------------------------------------------}
@@ -327,9 +323,6 @@ checkProofs env (l@(ParseLemma name aprop _) : ls) = do
         checkProof env l
     checkProofs (env { axioms = Named name (apropProp aprop) : axioms env }) ls
 
-mapLeft :: (a -> b) -> Either a c -> Either b c
-mapLeft f = either (Left . f) Right
-
 checkProof :: Env -> ParseLemma -> Err ()
 checkProof env (ParseLemma _ aprop (ParseEquation eqns)) = errCtxtStr "Equational proof" $ do
     validEquationProof (axioms env) eqns (apropProp aprop)
@@ -401,9 +394,6 @@ checkProof env (ParseLemma _ aprop (ParseInduction dtRaw overRaw casesRaw)) = er
             False -> err $ text $ "Induction hypothesis " ++ name ++ " is not valid"
         return userHyps
 
-    filterHyps :: [Prop] -> [Named Prop] -> [Named Prop]
-    filterHyps hyps = filter (\x -> namedVal x `elem` hyps)
-
     validateDatatype name = case find (\dt -> getDtName dt == name) (datatypes env) of
         Nothing -> err $ fsep $
             [ text "Invalid datatype" <+> quotes (text name) <> text "."
@@ -466,7 +456,7 @@ validEquationProof rules eqns goal = do
 isFixedProp :: Prop -> Prop -> Bool
 isFixedProp fixedProp schemProp = isJust $ do
     inst <- map snd <$> matchProp fixedProp schemProp []
-    let (Prop schemL schemR) = schemProp
+    --let (Prop schemL schemR) = schemProp
     --let schemFrees = collectFrees schemL $ collectFrees schemR $ []
     guard $ all (\x -> isFree x || isSchematic x) inst && nub inst == inst -- && null schemFrees
 
@@ -487,38 +477,6 @@ rewritesTo rules l r = l == r || rewrites l r || rewrites r l
 rewritesToWith :: String -> [Named Prop] -> Term -> Term -> Bool
 rewritesToWith name rules l r = rewritesTo (f rules) l r
   where f = map namedVal . filter (\x -> namedName x == name)
-
-
-computeIndHyps :: Prop -> AProp -> String -> (String, [TConsArg]) -> Err ([Prop], [String])
-computeIndHyps prop caseGoal over con = do
-    inst <- case matchInductVar prop (apropProp caseGoal) of
-            Nothing -> err $ text "'To show' does not match subgoal:" `indent` -- XXX
-                (text "To show: " <+> apropDoc caseGoal)
-
-            Just x -> Right x
-    (recVars, nonrecVars) <- matchInstWithCon con (stripComb inst)
-    let instVars = recVars ++ nonrecVars
-    when (nub instVars /= instVars) $
-        errStr "The induction variables must be distinct!"
-    return $ (map (\v -> substProp prop [(over, Free v)]) recVars, instVars)
-  where
-    matchInductVar :: Prop -> Prop -> Maybe Term
-    matchInductVar pat term = do
-        s <- matchProp term pat []
-        guard $ instOnly over s
-        lookup over s
-      where instOnly x = all (\(var,inst) -> var == x || Free var == inst)
-
-    matchInstWithCon :: (String, [TConsArg]) -> (Term, [Term]) -> Err ([String], [String])
-    matchInstWithCon (conName, conArgs) (f, args)
-        | Const conName /= f = errStr $ "Equations and case do not match: "
-            ++ show (Const conName) ++ " vs. " ++ show f
-        | otherwise = do
-            let (rec, nonRec) = partition (\(x,_) -> x == TRec) (conArgs `zip` args)
-            liftM2 (,) (traverse (safeFromFree . snd) rec) (traverse (safeFromFree . snd) nonRec)
-        where
-            safeFromFree (Free v) = return v
-            safeFromFree term = errStr $ "Term '" ++ show term ++ "' used in induction is not a variable."
 
 
 readDataType :: [ParseDeclTree] -> Err [DataType]
