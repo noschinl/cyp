@@ -35,7 +35,7 @@ data ParseCase = ParseCase
     { pcCons :: ATerm
     , pcToShow :: AProp
     , pcIndHyps :: [Named AProp]
-    , pcEqns :: EqnSeqq ATerm
+    , pcEqns :: ParseProof
     }
 
 data ParseProof
@@ -181,6 +181,10 @@ isFree :: Term -> Bool
 isFree (Free _) = True
 isFree _ = False
 
+isSchematic :: Term -> Bool
+isSchematic (Schematic _) = True
+isSchematic _ = False
+
 symPropEq :: String
 symPropEq = ".=."
 
@@ -204,6 +208,11 @@ instance Functor EqnSeq where
 instance Traversable EqnSeq where
     traverse f (Single x) = Single <$> f x
     traverse f (Step x y es) = Step <$> f x <*> pure y <*> traverse f es
+
+-- Functor instance?
+mapEqnSeqq :: (a -> a) -> EqnSeqq a -> EqnSeqq a
+mapEqnSeqq f (EqnSeqq x y) = EqnSeqq (fmap f x) (fmap f <$> y)
+
 
 eqnSeqFromList :: a -> [(String,a)] -> EqnSeq a
 eqnSeqFromList a [] = Single a
@@ -322,8 +331,9 @@ mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f = either (Left . f) Right
 
 checkProof :: Env -> ParseLemma -> Err ()
-checkProof env (ParseLemma _ aprop (ParseEquation eqns)) = errCtxtStr "Equational proof" $
+checkProof env (ParseLemma _ aprop (ParseEquation eqns)) = errCtxtStr "Equational proof" $ do
     validEquationProof (axioms env) eqns (apropProp aprop)
+    return ()
 checkProof env (ParseLemma _ aprop (ParseInduction dtRaw overRaw casesRaw)) = errCtxt ctxtMsg $ do
     dt <- validateDatatype dtRaw
     over <- validateOver overRaw
@@ -354,13 +364,6 @@ checkProof env (ParseLemma _ aprop (ParseInduction dtRaw overRaw casesRaw)) = er
 
         invCaseMsg = text "Invalid case" <+> quotes (atermDoc t) <> comma
 
-
---    lookupCons name (DataType _ conss) = case find (\c -> fst c == name) conss of
---        Nothing -> err (text "Invalid case" <+> quotes (text name) <> comma
---            <+> text "expected one of"
---            <+> (fsep . punctuate comma . map (quotes . text . fst) $ conss))
---        Just x -> return x
-
     validateCase :: DataType -> String -> ParseCase -> Err String
     validateCase dt over pc = errCtxt (text "Case" <+> quotes (atermDoc $ pcCons pc)) $ do
         (consName, consArgNs) <- lookupCons (pcCons pc) dt
@@ -378,8 +381,10 @@ checkProof env (ParseLemma _ aprop (ParseInduction dtRaw overRaw casesRaw)) = er
         -- (indHyps, instVars) <- computeIndHyps (apropProp aprop) toShow over cons
         userHyps <- checkPcHyps argsNames indHyps $ pcIndHyps pc
 
-        (l,r) <- validEqnSeqq (userHyps ++ axioms env) $ pcEqns pc
-        let eqnProp = apropMap (generalizeExceptProp argsNames) $ mkAProp l r
+        let ParseEquation eqns = pcEqns pc -- XXX
+        let eqns' = atermMap (generalizeExcept argsNames) `mapEqnSeqq` eqns
+
+        eqnProp <- validEquationProof (userHyps ++ axioms env) eqns' subgoal
         when (apropProp eqnProp /= apropProp toShow) $
             err $ (text "Result of equational proof" `indent` (apropDoc eqnProp))
                 $+$ (text "does not match stated goal:" `indent` (apropDoc toShow))
@@ -448,19 +453,22 @@ validEqnSeqq rules (EqnSeqq es1 (Just es2)) = do
         False -> errCtxtStr "Two equation chains don't fit together:" $
             err $ atermDoc tl1 $+$ text symPropEq $+$ atermDoc tl2
 
-validEquationProof :: [Named Prop] -> EqnSeqq ATerm -> Prop -> Err ()
-validEquationProof rules eqns aim = do
+validEquationProof :: [Named Prop] -> EqnSeqq ATerm -> Prop -> Err AProp
+validEquationProof rules eqns goal = do
     (l,r) <- validEqnSeqq rules eqns
-    unless (isFixedProp (Prop (atermTerm l) (atermTerm r)) aim) $
-        err $ text "Proved proposition does not match goal:"
-            `indent` (atermDoc l $+$ text symPropEq $+$ atermDoc r)
+    let prop = mkAProp l r
+    case isFixedProp (apropProp prop) $ goal of
+        False -> err $ text "Proved proposition does not match goal:"
+                     `indent` (apropDoc prop)
+        True -> return prop
 
+-- XXX Think about schemFrees again ...
 isFixedProp :: Prop -> Prop -> Bool
 isFixedProp fixedProp schemProp = isJust $ do
     inst <- map snd <$> matchProp fixedProp schemProp []
     let (Prop schemL schemR) = schemProp
-    let schemFrees = collectFrees schemL $ collectFrees schemR $ []
-    guard $ all isFree inst && nub inst == inst && null schemFrees
+    --let schemFrees = collectFrees schemL $ collectFrees schemR $ []
+    guard $ all (\x -> isFree x || isSchematic x) inst && nub inst == inst -- && null schemFrees
 
 rewriteTop :: Term -> Prop -> Maybe Term
 rewriteTop t (Prop lhs rhs) = fmap (subst rhs) $ match t lhs []
@@ -928,13 +936,13 @@ caseParser = do
     manySpacesOrComment
     indHyps <- indHypsP
     manySpacesOrComment
-    eqns <- equationsParser
+    eqnPrf <- equationProofParser
     manySpacesOrComment
     return $ ParseCase
         { pcCons = t
         , pcToShow = toShow
         , pcIndHyps = indHyps
-        , pcEqns = eqns
+        , pcEqns = eqnPrf
         }
   where
     toShowP = do

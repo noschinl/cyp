@@ -6,27 +6,31 @@ Case [] -- base case
 
     To show: itrev [] ys .=. reverse [] ++ ys
 
-                            itrev [] ys
-    (by def itrev)      .=. ys
+    Proof
+                                itrev [] ys
+        (by def itrev)      .=. ys
 
-    reverse [] ++ ys
-    (by def reverse)    .=. [] ++ ys
-    (by def ++)         .=. ys
+        reverse [] ++ ys
+        (by def reverse)    .=. [] ++ ys
+        (by def ++)         .=. ys
+    QED
 
 Case x:xs  -- induction step
 
     To show: itrev (x:xs) ys .=. reverse (x:xs) ++ ys
     IH 1: itrev xs ys .=. reverse xs ++ ys
 
-                            itrev (x:xs) ys
-    (by def itrev)      .=. itrev xs (x:ys)
-    (by IH 1)           .=. reverse xs ++ (x:ys)
+    Proof
+                                itrev (x:xs) ys
+        (by def itrev)      .=. itrev xs (x:ys)
+        (by IH 1)           .=. reverse xs ++ (x:ys)
 
-                            reverse (x:xs) ++ ys
-    (by def reverse)    .=. (reverse xs ++ [x]) ++ ys
-    (by app_assoc)      .=. reverse xs ++ ([x] ++ ys)
-    (by def ++)         .=. reverse xs ++ (x : ([] ++ ys))
-    (by def ++)         .=. reverse xs ++ (x:ys)
+                                reverse (x:xs) ++ ys
+        (by def reverse)    .=. (reverse xs ++ [x]) ++ ys
+        (by app_assoc)      .=. reverse xs ++ ([x] ++ ys)
+        (by def ++)         .=. reverse xs ++ (x : ([] ++ ys))
+        (by def ++)         .=. reverse xs ++ (x:ys)
+    QED
 
 QED
 
@@ -39,17 +43,21 @@ Case []
 
     To show: [] ++ [] .=. []
 
-                            [] ++ []
-    (by def ++)         .=. []
+    Proof
+                                [] ++ []
+        (by def ++)         .=. []
+    QED
 
 Case x:xs
 
     To show: (x:xs) ++ [] .=. (x:xs)
     IH: xs ++ [] .=. xs
 
-                            (x:xs) ++ []
-    (by def ++)         .=. x : (xs ++ [])
-    (by IH)             .=. x : xs
+    Proof
+                                (x:xs) ++ []
+        (by def ++)         .=. x : (xs ++ [])
+        (by IH)             .=. x : xs
+    QED
 
 QED
 
