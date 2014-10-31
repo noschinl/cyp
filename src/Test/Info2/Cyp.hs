@@ -372,7 +372,7 @@ validEqnSeqq :: [Named Prop] -> EqnSeqq ATerm -> Err (ATerm, ATerm)
 validEqnSeqq rules (EqnSeqq es1 Nothing) = validEqnSeq rules es1
 validEqnSeqq rules (EqnSeqq es1 (Just es2)) = do
     (th1,tl1) <- validEqnSeq rules es1
-    (th2,tl2) <- validEqnSeq rules es1
+    (th2,tl2) <- validEqnSeq rules es2
     case atermTerm tl1 == atermTerm tl2 of
         True -> return (th1, th2)
         False -> errCtxtStr "Two equation chains don't fit together:" $
