@@ -89,7 +89,6 @@ data TConsArg = TNRec | TRec deriving (Show,Eq)
 
 type Err a = Either Doc a
 
-
 {- Debug tools ------------------------------------------------------}
 
 tracePretty :: Show a => a -> b -> b
@@ -222,6 +221,9 @@ namedName (Named name _) = name
 atermTerm :: ATerm -> Term
 atermTerm (ATerm _ term) = term
 
+atermText :: ATerm -> String
+atermText (ATerm s _) = s
+
 atermDoc :: ATerm -> Doc
 atermDoc (ATerm s _) = text s
 
@@ -234,6 +236,11 @@ apropDoc (AProp s _) = text s
 -- Use with care -- should not invalidate representation
 atermMap :: (Term -> Term) -> ATerm -> ATerm
 atermMap f (ATerm s term) = ATerm s (f term)
+
+mkAProp :: ATerm -> ATerm -> AProp
+mkAProp p1 p2 = AProp (atermText p1  ++ " " ++ symPropEq ++ " " ++ atermText p2)
+    $ Prop (atermTerm p1) (atermTerm p2)
+
 
 
 {- Prop operations --------------------------------------------------}
@@ -310,10 +317,14 @@ checkProof env (ParseLemma _ aprop (ParseInduction dtRaw overRaw casesRaw)) = er
     validateCase :: DataType -> String -> ParseCase -> Err ()
     validateCase dt over pc = errCtxt (text "Case" <+> quotes (text $ pcCons pc)) $ do
         cons <- lookupCons (pcCons pc) dt
-        let (l,r) = eqnSeqqEnds $ pcEqns pc
-        (indHyps, instVars) <- computeIndHyps (apropProp aprop) (l,r) over cons
+        let toShow = pcToShow pc
+        (indHyps, instVars) <- computeIndHyps (apropProp aprop) toShow over cons
         userHyps <- checkPcHyps instVars indHyps $ pcIndHyps pc
-        validEqnSeqq (userHyps ++ axioms env) $ pcEqns pc
+        (l,r) <- validEqnSeqq (userHyps ++ axioms env) $ pcEqns pc
+        let eqnProp = mkAProp l r
+        when (apropProp eqnProp /= apropProp toShow) $
+            err $ (text "Result of equational proof" `indent` (apropDoc eqnProp))
+                $+$ (text "does not match stated goal:" `indent` (apropDoc toShow))
         return ()
 
     checkPcHyps :: [String] -> [Prop] -> [Named AProp] -> Err [Named Prop]
@@ -355,7 +366,7 @@ checkProof env (ParseLemma _ aprop (ParseInduction dtRaw overRaw casesRaw)) = er
     getDtName (DataType n _) = n
 
 validEqnSeq :: [Named Prop] -> EqnSeq ATerm -> Err (ATerm, ATerm)
-validEqnSeq _ (Single t) = Right (t, t)
+validEqnSeq _ (Single t) = return (t, t)
 validEqnSeq rules (Step t1 rule es)
     | rewritesToWith rule rules (atermTerm t1) (atermTerm t2) = do
         (_, tLast) <- validEqnSeq rules es
@@ -371,8 +382,8 @@ validEqnSeq rules (Step t1 rule es)
 validEqnSeqq :: [Named Prop] -> EqnSeqq ATerm -> Err (ATerm, ATerm)
 validEqnSeqq rules (EqnSeqq es1 Nothing) = validEqnSeq rules es1
 validEqnSeqq rules (EqnSeqq es1 (Just es2)) = do
-    (th1,tl1) <- validEqnSeq rules es1
-    (th2,tl2) <- validEqnSeq rules es2
+    (th1, tl1) <- validEqnSeq rules es1
+    (th2, tl2) <- validEqnSeq rules es2
     case atermTerm tl1 == atermTerm tl2 of
         True -> return (th1, th2)
         False -> errCtxtStr "Two equation chains don't fit together:" $
@@ -381,10 +392,9 @@ validEqnSeqq rules (EqnSeqq es1 (Just es2)) = do
 validEquationProof :: [Named Prop] -> EqnSeqq ATerm -> Prop -> Err ()
 validEquationProof rules eqns aim = do
     (l,r) <- validEqnSeqq rules eqns
-    let proved = Prop (atermTerm l) (atermTerm $ r)
-    unless (isFixedProp proved aim) $
-        err $ text "Proved proposition does not match goal:" `indent`
-            (atermDoc l <+> text symPropEq <+> atermDoc r)
+    unless (isFixedProp (Prop (atermTerm l) (atermTerm r)) aim) $
+        err $ text "Proved proposition does not match goal:"
+            `indent` (atermDoc l $+$ text symPropEq $+$ atermDoc r)
 
 isFixedProp :: Prop -> Prop -> Bool
 isFixedProp fixedProp schemProp = isJust $ do
@@ -412,11 +422,11 @@ rewritesToWith name rules l r = rewritesTo (f rules) l r
   where f = map namedVal . filter (\x -> namedName x == name)
 
 
-computeIndHyps :: Prop -> (ATerm, ATerm) -> String -> (String, [TConsArg]) -> Err ([Prop], [String])
-computeIndHyps prop (l,r) over con = do
-    inst <- case matchInductVar prop $ Prop (atermTerm $ l) (atermTerm $ r) of
-            Nothing -> err $ text "Proved proposition does not match subgoal:" `indent`
-                (text "Proposition: " <+> atermDoc l <+> text symPropEq <+> atermDoc r)
+computeIndHyps :: Prop -> AProp -> String -> (String, [TConsArg]) -> Err ([Prop], [String])
+computeIndHyps prop caseGoal over con = do
+    inst <- case matchInductVar prop (apropProp caseGoal) of
+            Nothing -> err $ text "'To show' does not match subgoal:" `indent` -- XXX
+                (text "To show: " <+> apropDoc caseGoal)
 
             Just x -> Right x
     (recVars, nonrecVars) <- matchInstWithCon con (stripComb inst)
@@ -757,25 +767,27 @@ inductionProofParser =
         keywordQED
         return (ParseInduction datatype over cases)
 
-propParser :: Parsec [Char] Env AProp
-propParser = do
+type PropParserMode = [String] -> String -> Err Term
+
+propParser :: PropParserMode -> Parsec [Char] Env AProp
+propParser mode = do
     s <- trim <$> toEol1
     env <- getState
     let aprop = errCtxtStr "Failed to parse expression" $ do
-            AProp s <$> iparseProp (defaultToSchematic $ constants env) s
+            AProp s <$> iparseProp (mode $ constants env) s
     toParsec show aprop
 
-namedPropParser :: Parsec [Char] Env String -> Parsec [Char] Env (String, AProp)
-namedPropParser p = do
+namedPropParser :: PropParserMode -> Parsec [Char] Env String -> Parsec [Char] Env (String, AProp)
+namedPropParser mode p = do
     name <- option "" p
     char ':'
-    aprop <- propParser
+    aprop <- propParser mode
     return (name, aprop)
 
 lemmaParser :: Parsec [Char] Env ParseLemma
 lemmaParser =
     do  keyword "Lemma"
-        (name, aprop) <- namedPropParser idParser
+        (name, aprop) <- namedPropParser defaultToSchematic idParser
         manySpacesOrComment
         prf <- inductionProofParser <|> equationProofParser
         manySpacesOrComment
@@ -866,7 +878,7 @@ caseParser = do
         keyword "To show"
         lineSpaces
         char ':'
-        propParser
+        propParser defaultToFree
     indHypsP = many $ do
         hyp <- indHypP
         manySpacesOrComment
@@ -874,7 +886,7 @@ caseParser = do
     indHypP = do
         string "IH"
         spaces
-        (name, prop) <- namedPropParser (many alphaNum)
+        (name, prop) <- namedPropParser defaultToSchematic (many alphaNum)
         return $ Named (if name == "" then "IH" else "IH " ++ name) prop
 
 

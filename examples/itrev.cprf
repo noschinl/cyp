@@ -37,7 +37,7 @@ Proof by induction on List xs
 
 Case []
 
-    To show: [] ++ [] .=. xs
+    To show: [] ++ [] .=. []
 
                             [] ++ []
     (by def ++)         .=. []
