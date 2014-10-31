@@ -13,7 +13,7 @@ Case []
     (by def length)      .=. 0 + length ys
     (by arith)           .=. length ys
 
-Case :
+Case x:xs
 
     To show: length ((x : xs) ++ ys) .=. length (x : xs) + length ys
     IH: length (xs ++ ys) .=. length xs + length ys

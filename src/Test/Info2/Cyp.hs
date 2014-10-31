@@ -32,7 +32,7 @@ data ParseDeclTree
 data ParseLemma = ParseLemma String AProp ParseProof -- Proposition, Proof
 
 data ParseCase = ParseCase
-    { pcCons :: String
+    { pcCons :: ATerm
     , pcToShow :: AProp
     , pcIndHyps :: [Named AProp]
     , pcEqns :: EqnSeqq ATerm
@@ -97,6 +97,9 @@ tracePretty = trace . ppShow
 tracePrettyA :: Show a => a -> a
 tracePrettyA x = tracePretty x x
 
+tracePrettyA' :: Show a => String -> a -> a
+tracePrettyA' s x = trace (s ++ "\n" ++ ppShow x) x
+
 tracePrettyF :: Show b => (a -> b) -> a -> a
 tracePrettyF f x = tracePretty (f x) x
 
@@ -155,6 +158,17 @@ subst (Schematic v) s = case lookup v s of
       Nothing -> Schematic v
       Just t -> t
 subst t _ = t
+
+-- Generalizes a term by turning Frees into Schematics.
+-- XXX: Result may not be as general as intended, as
+-- generalizing may reuse names ...
+generalizeExcept :: [String] -> Term -> Term
+generalizeExcept vs (Application s t) = Application (generalizeExcept vs s) (generalizeExcept vs t)
+generalizeExcept vs (Free v)
+    | v `elem` vs = Free v
+    | otherwise = Schematic v
+generalizeExcept vs t = t
+
 
 collectFrees :: Term -> [String]-> [String]
 collectFrees (Application f a) xs = collectFrees f $ collectFrees a xs
@@ -237,6 +251,10 @@ apropDoc (AProp s _) = text s
 atermMap :: (Term -> Term) -> ATerm -> ATerm
 atermMap f (ATerm s term) = ATerm s (f term)
 
+-- Use with care -- should not invalidate representation
+apropMap :: (Prop -> Prop) -> AProp -> AProp
+apropMap f (AProp s prop) = AProp s (f prop)
+
 mkAProp :: ATerm -> ATerm -> AProp
 mkAProp p1 p2 = AProp (atermText p1  ++ " " ++ symPropEq ++ " " ++ atermText p2)
     $ Prop (atermTerm p1) (atermTerm p2)
@@ -251,6 +269,11 @@ matchProp (Prop l r) (Prop l' r') = match l l' >=> match r r'
 substProp :: Prop -> [(String, Term)] -> Prop
 substProp (Prop l r) s = Prop (subst l s) (subst r s)
 
+-- Generalizes a prop by turning Frees into Schematics.
+-- XXX: Result may not be as general as intended, as
+-- generalizing may reuse names ...
+generalizeExceptProp :: [String] -> Prop -> Prop
+generalizeExceptProp vs (Prop l r) = Prop (generalizeExcept vs l) (generalizeExcept vs r)
 
 
 {- Main -------------------------------------------------------------}
@@ -308,24 +331,61 @@ checkProof env (ParseLemma _ aprop (ParseInduction dtRaw overRaw casesRaw)) = er
   where
     ctxtMsg = text "Induction over variable"
         <+> quotes (text overRaw) <+> text "of type" <+> quotes (text dtRaw)
-    lookupCons name (DataType _ conss) = case find (\c -> fst c == name) conss of
-        Nothing -> err (text "Invalid case" <+> quotes (text name) <> comma
-            <+> text "expected one of"
-            <+> (fsep . punctuate comma . map (quotes . text . fst) $ conss))
-        Just x -> return x
 
-    validateCase :: DataType -> String -> ParseCase -> Err ()
-    validateCase dt over pc = errCtxt (text "Case" <+> quotes (text $ pcCons pc)) $ do
-        cons <- lookupCons (pcCons pc) dt
-        let toShow = pcToShow pc
-        (indHyps, instVars) <- computeIndHyps (apropProp aprop) toShow over cons
-        userHyps <- checkPcHyps instVars indHyps $ pcIndHyps pc
+    lookupCons t (DataType _ conss) = errCtxt invCaseMsg $do
+        (consName, consArgs) <- findCons cons 
+        argNames <- traverse argName args
+        when (not $ nub args == args) $
+            errStr "Constructor arguments must be distinct"
+        when (not $ length args == length consArgs) $
+            errStr "Invalid number of arguments"
+        return (consName, zip consArgs argNames)
+      where
+        (cons, args) = stripComb (atermTerm t)
+
+        argName (Free v) = return v
+        argName _ = errStr "Constructor arguments must be variables"
+
+        findCons (Const name) = case find (\c -> fst c == name) conss of
+            Nothing -> err (text "Invalid constructor, expected one of"
+                <+> (fsep . punctuate comma . map (quotes . text . fst) $ conss))
+            Just x -> return x
+        findCons _ = errStr "Outermost symbol is not a constant"
+
+        invCaseMsg = text "Invalid case" <+> quotes (atermDoc t) <> comma
+
+
+--    lookupCons name (DataType _ conss) = case find (\c -> fst c == name) conss of
+--        Nothing -> err (text "Invalid case" <+> quotes (text name) <> comma
+--            <+> text "expected one of"
+--            <+> (fsep . punctuate comma . map (quotes . text . fst) $ conss))
+--        Just x -> return x
+
+    validateCase :: DataType -> String -> ParseCase -> Err String
+    validateCase dt over pc = errCtxt (text "Case" <+> quotes (atermDoc $ pcCons pc)) $ do
+        (consName, consArgNs) <- lookupCons (pcCons pc) dt
+        let argsNames = map snd consArgNs
+
+        let lemmaProp = apropProp aprop
+        let subgoal = substProp lemmaProp [(over, atermTerm $ pcCons pc)]
+        let toShow = apropMap (generalizeExceptProp argsNames) $ pcToShow pc
+        when (subgoal /= (apropProp toShow)) $ err
+             $ text "'To show' does not match subgoal:"
+             `indent` (text "To show: " <+> apropDoc toShow)
+
+        let indHyps = map (substProp lemmaProp . instOver) . filter (\x -> fst x == TRec) $ consArgNs
+
+        -- (indHyps, instVars) <- computeIndHyps (apropProp aprop) toShow over cons
+        userHyps <- checkPcHyps argsNames indHyps $ pcIndHyps pc
+
         (l,r) <- validEqnSeqq (userHyps ++ axioms env) $ pcEqns pc
-        let eqnProp = mkAProp l r
+        let eqnProp = apropMap (generalizeExceptProp argsNames) $ mkAProp l r
         when (apropProp eqnProp /= apropProp toShow) $
             err $ (text "Result of equational proof" `indent` (apropDoc eqnProp))
                 $+$ (text "does not match stated goal:" `indent` (apropDoc toShow))
-        return ()
+        return consName
+      where
+        instOver (_, n) = [(over, Free n)]
 
     checkPcHyps :: [String] -> [Prop] -> [Named AProp] -> Err [Named Prop]
     checkPcHyps instVars indHyps pcHyps = do
@@ -354,13 +414,12 @@ checkProof env (ParseLemma _ aprop (ParseInduction dtRaw overRaw casesRaw)) = er
                 <+> text "is not a valid induction variable"
 
     validateCases dt over cases = do
-        case missingCase of
+        caseNames <- traverse (validateCase dt over) cases
+        case missingCase caseNames of
             Nothing -> return ()
             Just (name, _) -> errStr $ "Missing case '" ++ name ++ "'"
-        traverse_ (validateCase dt over) cases
       where
-        caseNames = map pcCons cases
-        missingCase = find (\(name, _) -> name `notElem` caseNames) (getDtConss dt)
+        missingCase caseNames = find (\(name, _) -> name `notElem` caseNames) (getDtConss dt)
 
     getDtConss (DataType _ conss) = conss
     getDtName (DataType n _) = n
@@ -862,8 +921,8 @@ equationsParser = do
 caseParser :: Parsec [Char] Env ParseCase
 caseParser = do
     keywordCase
-    manySpacesOrComment
-    cons <- trim <$> toEol
+    lineSpaces
+    t <- termParser defaultToFree
     manySpacesOrComment
     toShow <- toShowP
     manySpacesOrComment
@@ -872,7 +931,7 @@ caseParser = do
     eqns <- equationsParser
     manySpacesOrComment
     return $ ParseCase
-        { pcCons = cons
+        { pcCons = t
         , pcToShow = toShow
         , pcIndHyps = indHyps
         , pcEqns = eqns

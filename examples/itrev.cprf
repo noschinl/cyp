@@ -13,7 +13,7 @@ Case [] -- base case
     (by def reverse)    .=. [] ++ ys
     (by def ++)         .=. ys
 
-Case :  -- induction step
+Case x:xs  -- induction step
 
     To show: itrev (x:xs) ys .=. reverse (x:xs) ++ ys
     IH 1: itrev xs ys .=. reverse xs ++ ys
@@ -42,7 +42,7 @@ Case []
                             [] ++ []
     (by def ++)         .=. []
 
-Case :
+Case x:xs
 
     To show: (x:xs) ++ [] .=. (x:xs)
     IH: xs ++ [] .=. xs
