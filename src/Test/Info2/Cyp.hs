@@ -566,13 +566,13 @@ readFunc syms pds = do
     parseFunc _ = Nothing
 
 splitStringAt :: Eq a => [a] -> [a] -> [a] -> [[a]]
-splitStringAt _ [] h 
-	| h == [] = []
-	| otherwise = h : []
-splitStringAt a (x:xs) h 
-	| x `elem` a = h : splitStringAt a xs []
-	| otherwise = splitStringAt a xs (h++[x])
-												 
+splitStringAt _ [] h
+    | h == [] = []
+    | otherwise = h : []
+splitStringAt a (x:xs) h
+    | x `elem` a = h : splitStringAt a xs []
+    | otherwise = splitStringAt a xs (h++[x])
+
 
 {- Pretty printing --------------------------------------------------}
 
