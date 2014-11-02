@@ -22,6 +22,7 @@ import Text.Show.Pretty (ppShow)
 import Text.PrettyPrint (comma, empty, fsep, nest, parens, punctuate, quotes, text, vcat, (<>), (<+>), ($+$), Doc)
 
 import Test.Info2.Cyp.Term
+--import Test.Info2.Cyp.Trace
 
 data ParseDeclTree
     = DataDecl String
@@ -79,20 +80,6 @@ data AProp = AProp String Prop deriving Show
 data TConsArg = TNRec | TRec deriving (Show,Eq)
 
 type Err a = Either Doc a
-
-{- Debug tools ------------------------------------------------------}
-
-tracePretty :: Show a => a -> b -> b
-tracePretty = trace . ppShow
-
-tracePrettyA :: Show a => a -> a
-tracePrettyA x = tracePretty x x
-
-tracePrettyA' :: Show a => String -> a -> a
-tracePrettyA' s x = trace (s ++ "\n" ++ ppShow x) x
-
-tracePrettyF :: Show b => (a -> b) -> a -> a
-tracePrettyF f x = tracePretty (f x) x
 
 
 {- Error handling combinators ---------------------------------------}
