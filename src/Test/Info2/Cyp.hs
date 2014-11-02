@@ -16,10 +16,8 @@ import Text.Parsec as Parsec
 import Language.Haskell.Exts.Parser 
 import Language.Haskell.Exts.Fixity
 import qualified Language.Haskell.Exts.Syntax as Exts
-import Language.Haskell.Exts.Syntax (Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..), Assoc(..))
-import Debug.Trace
-import Text.Show.Pretty (ppShow)
-import Text.PrettyPrint (comma, empty, fsep, nest, parens, punctuate, quotes, text, vcat, (<>), (<+>), ($+$), Doc)
+import Language.Haskell.Exts.Syntax (QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..), Assoc(..))
+import Text.PrettyPrint (comma, empty, fsep, nest, punctuate, quotes, text, vcat, (<>), (<+>), ($+$), Doc)
 
 import Test.Info2.Cyp.Term
 --import Test.Info2.Cyp.Trace
@@ -32,26 +30,24 @@ data ParseDeclTree
     | Goal String
     deriving Show
 
-data ParseLemma = ParseLemma String AProp ParseProof -- Proposition, Proof
+data ParseLemma = ParseLemma String Prop ParseProof -- Proposition, Proof
 
 data ParseCase = ParseCase
-    { pcCons :: ATerm
-    , pcToShow :: AProp
-    , pcIndHyps :: [Named AProp]
+    { pcCons :: Term
+    , pcToShow :: Prop
+    , pcIndHyps :: [Named Prop]
     , pcEqns :: ParseProof
     }
 
 data ParseProof
     = ParseInduction String String [ParseCase] -- DataTyp, Over, Cases
-    | ParseEquation (EqnSeqq ATerm)
-
-type ParseEquations = [String]
+    | ParseEquation (EqnSeqq Term)
 
 data Env = Env
     { datatypes :: [DataType]
     , axioms :: [Named Prop]
     , constants :: [String]
-    , goals :: [AProp]
+    , goals :: [Prop]
     }
     deriving Show
 
@@ -71,11 +67,6 @@ data Lemma = Lemma Prop Proof -- Proposition (_ = _), Proof
 
 data EqnSeq a = Single a | Step a String (EqnSeq a)
 data EqnSeqq a = EqnSeqq (EqnSeq a) (Maybe (EqnSeq a))
-
--- Term, annotated with original string representation
-data ATerm = ATerm String Term deriving Show
-
-data AProp = AProp String Prop deriving Show
 
 data TConsArg = TNRec | TRec deriving (Show,Eq)
 
@@ -149,38 +140,6 @@ namedName :: Named a -> String
 namedName (Named name _) = name
 
 
-{- ATerm and AProp operations-----------------------------------------}
-
-atermTerm :: ATerm -> Term
-atermTerm (ATerm _ term) = term
-
-atermText :: ATerm -> String
-atermText (ATerm s _) = s
-
-atermDoc :: ATerm -> Doc
-atermDoc (ATerm s _) = text s
-
-apropProp :: AProp -> Prop
-apropProp (AProp _ p) = p
-
-apropDoc :: AProp -> Doc
-apropDoc (AProp s _) = text s
-
--- Use with care -- should not invalidate representation
-atermMap :: (Term -> Term) -> ATerm -> ATerm
-atermMap f (ATerm s term) = ATerm s (f term)
-
--- Use with care -- should not invalidate representation
-apropMap :: (Prop -> Prop) -> AProp -> AProp
-apropMap f (AProp s prop) = AProp s (f prop)
-
-mkAProp :: ATerm -> ATerm -> AProp
-mkAProp p1 p2 = AProp (atermText p1  ++ " " ++ symPropEq ++ " " ++ atermText p2)
-    $ Prop (atermTerm p1) (atermTerm p2)
-
-
-
-
 {- Main -------------------------------------------------------------}
 
 proofFile :: FilePath -> FilePath -> IO (Err ())
@@ -197,9 +156,9 @@ proof (mName, mContent) (sName, sContent) = do
     case filter (not . contained results) $ goals env of
         [] -> return ()
         xs -> err $ indent (text "The following goals are still open:") $
-            vcat $ map apropDoc xs
+            vcat $ map unparseProp xs
   where
-    contained props (AProp _ goal) = any (\x -> isJust $ matchProp goal (namedVal x) []) props
+    contained props goal = any (\x -> isJust $ matchProp goal (namedVal x) []) props
 
 processMasterFile :: FilePath -> String -> Err Env
 processMasterFile path content = errCtxtStr "Parsing background theory" $ do
@@ -218,16 +177,16 @@ processProofFile env path  content= errCtxtStr "Parsing proof" $
 
 checkProofs :: Env -> [ParseLemma] -> Err [Named Prop]
 checkProofs env []  = Right $ axioms env
-checkProofs env (l@(ParseLemma name aprop _) : ls) = do
-    errCtxt (text "Lemma:" <+> apropDoc aprop) $
+checkProofs env (l@(ParseLemma name prop _) : ls) = do
+    errCtxt (text "Lemma:" <+> unparseProp prop) $
         checkProof env l
-    checkProofs (env { axioms = Named name (apropProp aprop) : axioms env }) ls
+    checkProofs (env { axioms = Named name prop : axioms env }) ls
 
 checkProof :: Env -> ParseLemma -> Err ()
-checkProof env (ParseLemma _ aprop (ParseEquation eqns)) = errCtxtStr "Equational proof" $ do
-    validEquationProof (axioms env) eqns (apropProp aprop)
+checkProof env (ParseLemma _ prop (ParseEquation eqns)) = errCtxtStr "Equational proof" $ do
+    validEquationProof (axioms env) eqns prop
     return ()
-checkProof env (ParseLemma _ aprop (ParseInduction dtRaw overRaw casesRaw)) = errCtxt ctxtMsg $ do
+checkProof env (ParseLemma _ prop (ParseInduction dtRaw overRaw casesRaw)) = errCtxt ctxtMsg $ do
     dt <- validateDatatype dtRaw
     over <- validateOver overRaw
     validateCases dt over casesRaw
@@ -244,7 +203,7 @@ checkProof env (ParseLemma _ aprop (ParseInduction dtRaw overRaw casesRaw)) = er
             errStr "Invalid number of arguments"
         return (consName, zip consArgs argNames)
       where
-        (cons, args) = stripComb (atermTerm t)
+        (cons, args) = stripComb t
 
         argName (Free v) = return v
         argName _ = errStr "Constructor arguments must be variables"
@@ -255,40 +214,38 @@ checkProof env (ParseLemma _ aprop (ParseInduction dtRaw overRaw casesRaw)) = er
             Just x -> return x
         findCons _ = errStr "Outermost symbol is not a constant"
 
-        invCaseMsg = text "Invalid case" <+> quotes (atermDoc t) <> comma
+        invCaseMsg = text "Invalid case" <+> quotes (unparseTerm t) <> comma
 
     validateCase :: DataType -> String -> ParseCase -> Err String
-    validateCase dt over pc = errCtxt (text "Case" <+> quotes (atermDoc $ pcCons pc)) $ do
+    validateCase dt over pc = errCtxt (text "Case" <+> quotes (unparseTerm $ pcCons pc)) $ do
         (consName, consArgNs) <- lookupCons (pcCons pc) dt
         let argsNames = map snd consArgNs
 
-        let lemmaProp = apropProp aprop
-        let subgoal = substProp lemmaProp [(over, atermTerm $ pcCons pc)]
-        let toShow = apropMap (generalizeExceptProp argsNames) $ pcToShow pc
-        when (subgoal /= (apropProp toShow)) $ err
+        let subgoal = substProp prop [(over, pcCons pc)]
+        let toShow = generalizeExceptProp argsNames $ pcToShow pc
+        when (subgoal /= toShow) $ err
              $ text "'To show' does not match subgoal:"
-             `indent` (text "To show: " <+> apropDoc toShow)
+             `indent` (text "To show: " <+> unparseProp toShow)
 
-        let indHyps = map (substProp lemmaProp . instOver) . filter (\x -> fst x == TRec) $ consArgNs
+        let indHyps = map (substProp prop . instOver) . filter (\x -> fst x == TRec) $ consArgNs
 
-        -- (indHyps, instVars) <- computeIndHyps (apropProp aprop) toShow over cons
         userHyps <- checkPcHyps argsNames indHyps $ pcIndHyps pc
 
         let ParseEquation eqns = pcEqns pc -- XXX
-        let eqns' = atermMap (generalizeExcept argsNames) `mapEqnSeqq` eqns
+        let eqns' = generalizeExcept argsNames `mapEqnSeqq` eqns
 
         eqnProp <- validEquationProof (userHyps ++ axioms env) eqns' subgoal
-        when (apropProp eqnProp /= apropProp toShow) $
-            err $ (text "Result of equational proof" `indent` (apropDoc eqnProp))
-                $+$ (text "does not match stated goal:" `indent` (apropDoc toShow))
+        when (eqnProp /= toShow) $
+            err $ (text "Result of equational proof" `indent` (unparseProp eqnProp))
+                $+$ (text "does not match stated goal:" `indent` (unparseProp toShow))
         return consName
       where
         instOver (_, n) = [(over, Free n)]
 
-    checkPcHyps :: [String] -> [Prop] -> [Named AProp] -> Err [Named Prop]
+    checkPcHyps :: [String] -> [Prop] -> [Named Prop] -> Err [Named Prop]
     checkPcHyps instVars indHyps pcHyps = do
         let inst = map (\v -> (v, Free v)) instVars
-        let userHyps = map (fmap (flip substProp inst . apropProp)) $ pcHyps
+        let userHyps = map (fmap (flip substProp inst)) $ pcHyps
         for_ userHyps $ \(Named name prop) -> case prop `elem` indHyps of
             True -> return ()
             False -> err $ text $ "Induction hypothesis " ++ name ++ " is not valid"
@@ -319,37 +276,37 @@ checkProof env (ParseLemma _ aprop (ParseInduction dtRaw overRaw casesRaw)) = er
     getDtConss (DataType _ conss) = conss
     getDtName (DataType n _) = n
 
-validEqnSeq :: [Named Prop] -> EqnSeq ATerm -> Err (ATerm, ATerm)
+validEqnSeq :: [Named Prop] -> EqnSeq Term -> Err (Term, Term)
 validEqnSeq _ (Single t) = return (t, t)
 validEqnSeq rules (Step t1 rule es)
-    | rewritesToWith rule rules (atermTerm t1) (atermTerm t2) = do
+    | rewritesToWith rule rules t1 t2 = do
         (_, tLast) <- validEqnSeq rules es
         return (t1, tLast)
     | otherwise = errCtxtStr ("Invalid proof step" ++ noRuleMsg) $
-        err $ atermDoc t1 $+$ text ("(by " ++ rule ++ ") " ++ symPropEq) <+> atermDoc t2
+        err $ unparseTerm t1 $+$ text ("(by " ++ rule ++ ") " ++ symPropEq) <+> unparseTerm t2
   where
     (t2, _) = eqnSeqEnds es
     noRuleMsg
         | any (\x -> namedName x == rule) rules = ""
         | otherwise = " (no rules with name \"" ++ rule ++ "\")"
 
-validEqnSeqq :: [Named Prop] -> EqnSeqq ATerm -> Err (ATerm, ATerm)
+validEqnSeqq :: [Named Prop] -> EqnSeqq Term -> Err (Term, Term)
 validEqnSeqq rules (EqnSeqq es1 Nothing) = validEqnSeq rules es1
 validEqnSeqq rules (EqnSeqq es1 (Just es2)) = do
     (th1, tl1) <- validEqnSeq rules es1
     (th2, tl2) <- validEqnSeq rules es2
-    case atermTerm tl1 == atermTerm tl2 of
+    case tl1 == tl2 of
         True -> return (th1, th2)
         False -> errCtxtStr "Two equation chains don't fit together:" $
-            err $ atermDoc tl1 $+$ text symPropEq $+$ atermDoc tl2
+            err $ unparseTerm tl1 $+$ text symPropEq $+$ unparseTerm tl2
 
-validEquationProof :: [Named Prop] -> EqnSeqq ATerm -> Prop -> Err AProp
+validEquationProof :: [Named Prop] -> EqnSeqq Term -> Prop -> Err Prop
 validEquationProof rules eqns goal = do
     (l,r) <- validEqnSeqq rules eqns
-    let prop = mkAProp l r
-    case isFixedProp (apropProp prop) $ goal of
+    let prop = Prop l r
+    case isFixedProp prop $ goal of
         False -> err $ text "Proved proposition does not match goal:"
-                     `indent` (apropDoc prop)
+                     `indent` (unparseProp prop)
         True -> return prop
 
 -- XXX Think about schemFrees again ...
@@ -412,10 +369,10 @@ readAxiom consts = sequence . mapMaybe parseAxiom
     parseAxiom (Axiom n s) = Just (Named n <$> iparseProp (defaultToSchematic consts) s)
     parseAxiom _ = Nothing
 
-readGoal :: [String] -> [ParseDeclTree] -> Err [AProp]
+readGoal :: [String] -> [ParseDeclTree] -> Err [Prop]
 readGoal consts = sequence . mapMaybe parseGoal
   where
-    parseGoal (Goal s) = Just $ AProp s <$> iparseProp (defaultToFree consts) s
+    parseGoal (Goal s) = Just $ iparseProp (defaultToFree consts) s
     parseGoal _ = Nothing
 
 readSym :: [ParseDeclTree] -> Err [String]
@@ -684,37 +641,37 @@ inductionProofParser =
 
 type PropParserMode = [String] -> String -> Err Term
 
-propParser :: PropParserMode -> Parsec [Char] Env AProp
+propParser :: PropParserMode -> Parsec [Char] Env Prop
 propParser mode = do
     s <- trim <$> toEol1
     env <- getState
-    let aprop = errCtxtStr "Failed to parse expression" $ do
-            AProp s <$> iparseProp (mode $ constants env) s
-    toParsec show aprop
+    let prop = errCtxtStr "Failed to parse expression" $
+            iparseProp (mode $ constants env) s
+    toParsec show prop
 
-termParser :: PropParserMode -> Parsec [Char] Env ATerm
+termParser :: PropParserMode -> Parsec [Char] Env Term
 termParser mode = do
     s <- trim <$> toEol1
     env <- getState
-    let aprop = errCtxtStr "Failed to parse expression" $ do
-            ATerm s <$> iparseTerm (mode $ constants env) s
-    toParsec show aprop
+    let term = errCtxtStr "Failed to parse expression" $
+            iparseTerm (mode $ constants env) s
+    toParsec show term
 
-namedPropParser :: PropParserMode -> Parsec [Char] Env String -> Parsec [Char] Env (String, AProp)
+namedPropParser :: PropParserMode -> Parsec [Char] Env String -> Parsec [Char] Env (String, Prop)
 namedPropParser mode p = do
     name <- option "" p
     char ':'
-    aprop <- propParser mode
-    return (name, aprop)
+    prop <- propParser mode
+    return (name, prop)
 
 lemmaParser :: Parsec [Char] Env ParseLemma
 lemmaParser =
     do  keyword "Lemma"
-        (name, aprop) <- namedPropParser defaultToSchematic idParser
+        (name, prop) <- namedPropParser defaultToSchematic idParser
         manySpacesOrComment
         prf <- inductionProofParser <|> equationProofParser
         manySpacesOrComment
-        return $ ParseLemma name aprop prf
+        return $ ParseLemma name prop prf
 
 studentParser ::  Parsec [Char] Env [ParseLemma]
 studentParser =
@@ -755,7 +712,7 @@ byRuleParser = do
     lineSpaces
     return cs
 
-equationsParser :: Parsec [Char] Env (EqnSeqq ATerm)
+equationsParser :: Parsec [Char] Env (EqnSeqq Term)
 equationsParser = do
     eq1 <- equations'
     eq2 <- optionMaybe (try equations')
