@@ -19,7 +19,9 @@ import qualified Language.Haskell.Exts.Syntax as Exts
 import Language.Haskell.Exts.Syntax (Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..), Assoc(..))
 import Debug.Trace
 import Text.Show.Pretty (ppShow)
-import Text.PrettyPrint (comma, empty, fsep, nest, punctuate, quotes, text, vcat, (<>), (<+>), ($+$), Doc)
+import Text.PrettyPrint (comma, empty, fsep, nest, parens, punctuate, quotes, text, vcat, (<>), (<+>), ($+$), Doc)
+
+import Test.Info2.Cyp.Term
 
 data ParseDeclTree
     = DataDecl String
@@ -55,9 +57,6 @@ data Env = Env
 data DataType = DataType String [(String, [TConsArg])] -- name cases
     deriving (Show)
 
-data Prop = Prop Term Term
-    deriving (Eq, Show) -- lhs, rhs
-
 data Named a = Named String a
     deriving Show
 
@@ -68,14 +67,6 @@ data Proof
 
 data Lemma = Lemma Prop Proof -- Proposition (_ = _), Proof
     deriving (Show)
-
-data Term
-    = Application Term Term
-    | Const String
-    | Free String -- Free variable
-    | Schematic String -- Schematic variable
-    | Literal Literal
-    deriving (Show, Eq)
 
 data EqnSeq a = Single a | Step a String (EqnSeq a)
 data EqnSeqq a = EqnSeqq (EqnSeq a) (Maybe (EqnSeq a))
@@ -126,74 +117,10 @@ eitherToErr :: Show a => Either a b -> Err b
 eitherToErr (Left x) = err $ foldr ($+$) empty (map text $lines $ show x)
 eitherToErr (Right x) = Right x
 
-
-{- Term operations ---------------------------------------------------}
-
-stripComb :: Term -> (Term, [Term])
-stripComb term = work (term, [])
-  where work (Application f a, xs) = work (f, a : xs)
-        work x = x
-
-listComb :: Term -> [Term] -> Term
-listComb = foldl Application
-
-mApp :: Monad m => m Term -> m Term -> m Term
-mApp = liftM2 Application
-
-infixl 1 `mApp`
-infixl 1 `Application`
-
-match :: Term -> Term -> [(String, Term)] -> Maybe [(String, Term)]
-match (Application f a) (Application f' a') s = match f f' s >>= match a a'
-match t (Schematic v) s = case lookup v s of
-    Nothing -> Just $ (v,t) : s
-    Just t' -> if t == t' then Just s else Nothing
-match term pat s
-    | term == pat = Just s
-    | otherwise = Nothing
-
-subst :: Term -> [(String, Term)] -> Term
-subst (Application f a) s = Application (subst f s) (subst a s)
-subst (Schematic v) s = case lookup v s of
-      Nothing -> Schematic v
-      Just t -> t
-subst t _ = t
-
--- Generalizes a term by turning Frees into Schematics.
--- XXX: Result may not be as general as intended, as
--- generalizing may reuse names ...
-generalizeExcept :: [String] -> Term -> Term
-generalizeExcept vs (Application s t) = Application (generalizeExcept vs s) (generalizeExcept vs t)
-generalizeExcept vs (Free v)
-    | v `elem` vs = Free v
-    | otherwise = Schematic v
-generalizeExcept _ t = t
-
-
-collectFrees :: Term -> [String]-> [String]
-collectFrees (Application f a) xs = collectFrees f $ collectFrees a xs
-collectFrees (Const _) xs = xs
-collectFrees (Free v) xs = v : xs
-collectFrees (Literal _) xs = xs
-collectFrees (Schematic _) xs = xs
-
-isFree :: Term -> Bool
-isFree (Free _) = True
-isFree _ = False
-
-isSchematic :: Term -> Bool
-isSchematic (Schematic _) = True
-isSchematic _ = False
-
-symPropEq :: String
-symPropEq = ".=."
-
-symUMinus :: String
-symUMinus = "-"
+{- Default constants -------------------------------------------------}
 
 defConsts :: [String]
 defConsts = [symPropEq]
-
 
 {- Equation sequences ------------------------------------------------}
 
@@ -265,20 +192,6 @@ mkAProp p1 p2 = AProp (atermText p1  ++ " " ++ symPropEq ++ " " ++ atermText p2)
     $ Prop (atermTerm p1) (atermTerm p2)
 
 
-
-{- Prop operations --------------------------------------------------}
-
-matchProp :: Prop -> Prop -> [(String, Term)] -> Maybe [(String, Term)]
-matchProp (Prop l r) (Prop l' r') = match l l' >=> match r r'
-
-substProp :: Prop -> [(String, Term)] -> Prop
-substProp (Prop l r) s = Prop (subst l s) (subst r s)
-
--- Generalizes a prop by turning Frees into Schematics.
--- XXX: Result may not be as general as intended, as
--- generalizing may reuse names ...
-generalizeExceptProp :: [String] -> Prop -> Prop
-generalizeExceptProp vs (Prop l r) = Prop (generalizeExcept vs l) (generalizeExcept vs r)
 
 
 {- Main -------------------------------------------------------------}
@@ -576,15 +489,17 @@ splitStringAt a (x:xs) h
 
 {- Pretty printing --------------------------------------------------}
 
-printProp :: Prop -> String
-printProp (Prop l r) = printInfo l ++ " = " ++ printInfo r
+debugConsts = map (\(CypFixity _ _ name) -> name) unparseFixities
+debugParse = iparseTerm (defaultToFree debugConsts)
+debugTrip = fmap unparseTerm . debugParse
+debugExpr =
+    [ "1 + 2 $ 3"
+    , "1 + (2 $ 3)"
+    , "(1 + 2) (3 $)"
+    , "1 $ (*) 3"
+    ]
 
-printInfo :: Term -> String
-printInfo (Application termCurry term) = "((" ++ (printInfo termCurry) ++ ") " ++ (printInfo term) ++ ")"
-printInfo (Literal a) = translateLiteral a
-printInfo (Const a) = a
-printInfo (Free a) = "!" ++ a
-printInfo (Schematic a) = "?" ++ a
+
 
 
 {- Transform Exp to Term ---------------------------------------------}
@@ -634,18 +549,6 @@ translateQName (Special ListCon) = return "[]"
 translateQName (Special FunCon) = return "->"
 translateQName (Special Cons) = return ":"
 translateQName q = errStr $ "Unsupported QName '" ++ show q ++ "'."
-
-translateLiteral :: Literal -> String
-translateLiteral (Char c) = [c]
-translateLiteral (String s) = s
-translateLiteral (Int c) = show c
-translateLiteral (Frac c) = show c
-translateLiteral (PrimInt c) = show c
-translateLiteral (PrimWord c) = show c
-translateLiteral (PrimFloat c) = show c
-translateLiteral (PrimDouble c) = show c
-translateLiteral (PrimChar c) = [c]
-translateLiteral (PrimString c) = c
 
 translateName :: Name -> String
 translateName (Ident s) = s
