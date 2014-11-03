@@ -8,6 +8,10 @@ library
   hs-source-dirs:    src
   ghc-options:       -W
   exposed-modules:   Test.Info2.Cyp
+  other-modules:
+      Test.Info2.Cyp.Term
+    , Test.Info2.Cyp.Trace
+    , Test.Info2.Cyp.Util
   build-depends:
       base ==4.*
     , haskell-src-exts ==1.13.5.*
