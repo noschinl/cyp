@@ -13,11 +13,9 @@ import Data.Maybe
 import Data.Monoid (mappend)
 import Data.Traversable (Traversable, traverse)
 import Text.Parsec as Parsec
-import Language.Haskell.Exts.Parser 
-import Language.Haskell.Exts.Fixity
+import qualified Language.Haskell.Exts.Parser as P
 import qualified Language.Haskell.Exts.Syntax as Exts
-import Language.Haskell.Exts.Syntax (QName(..), SpecialCon (..), Name (..), ModuleName (..), Exp (..), QOp (..), Assoc(..))
-import Text.PrettyPrint (comma, empty, fsep, nest, punctuate, quotes, text, vcat, (<>), (<+>), ($+$), Doc)
+import Text.PrettyPrint (comma, fsep, punctuate, quotes, text, vcat, (<>), (<+>), ($+$), render)
 
 import Test.Info2.Cyp.Term
 --import Test.Info2.Cyp.Trace
@@ -392,11 +390,11 @@ readFunc syms pds = do
 
     parseFunc :: ParseDeclTree -> Maybe (Err (String, [Exts.Pat], Exts.Exp))
     parseFunc (FunDef s) = Just $ errCtxt (text "Parsing function definition" <+> quotes (text s)) $
-        case parseDecl s of
-            ParseOk (Exts.FunBind [Exts.Match _ name pat _ (Exts.UnGuardedRhs rhs) (Exts.BDecls [])])
+        case P.parseDecl s of
+            P.ParseOk (Exts.FunBind [Exts.Match _ name pat _ (Exts.UnGuardedRhs rhs) (Exts.BDecls [])])
                 -> Right (translateName name, pat, rhs)
-            ParseOk _ -> errStr "Invalid function definition."
-            f@(ParseFailed _ _ ) -> errStr $ show f
+            P.ParseOk _ -> errStr "Invalid function definition."
+            f@(P.ParseFailed _ _ ) -> errStr $ show f
     parseFunc _ = Nothing
 
 splitStringAt :: Eq a => [a] -> [a] -> [a] -> [[a]]
@@ -407,115 +405,6 @@ splitStringAt a (x:xs) h
     | x `elem` a = h : splitStringAt a xs []
     | otherwise = splitStringAt a xs (h++[x])
 
-
-{- Pretty printing --------------------------------------------------}
-
-debugConsts = map (\(CypFixity _ _ name) -> name) unparseFixities
-debugParse = iparseTerm (defaultToFree debugConsts)
-debugTrip = fmap unparseTerm . debugParse
-debugExpr =
-    [ "1 + 2 $ 3"
-    , "1 + (2 $ 3)"
-    , "(1 + 2) (3 $)"
-    , "1 $ (*) 3"
-    ]
-
-
-
-
-{- Transform Exp to Term ---------------------------------------------}
-
-translateExp :: (String -> Err Term) -> Exp -> Err Term
-translateExp f (Var v) = f =<< translateQName v
-translateExp _ (Con c) = Const <$> translateQName c
-translateExp _ (Lit l) = Right $ Literal l
-translateExp f (InfixApp e1 op e2) =
-    translateQOp f op `mApp` translateExp f e1 `mApp` translateExp f e2
-translateExp f (App e1 e2) = translateExp f e1 `mApp` translateExp f e2
-translateExp f (NegApp e) = return (Const symUMinus) `mApp` translateExp f e
-translateExp f (LeftSection e op) = translateQOp f op `mApp` translateExp f e
-translateExp f (Paren e) = translateExp f e
-translateExp f (List l) = foldr (\e es -> Right (Const ":") `mApp` translateExp f e `mApp` es) (Right $ Const "[]") l
-translateExp _ e = errStr $ "Unsupported expression syntax used: " ++ show e
-
-translatePat :: Exts.Pat -> Err Term
-translatePat (Exts.PVar v) = Right $ Schematic $ translateName v
-translatePat (Exts.PLit l) = Right $ Literal l
--- PNeg?
-translatePat (Exts.PNPlusK _ _) = errStr "n+k patterns are not supported"
-translatePat (Exts.PInfixApp p1 qn p2) =
-    (Const <$> translateQName qn) `mApp` translatePat p1 `mApp` translatePat p2
-translatePat (Exts.PApp qn ps) = do
-    cs <- traverse translatePat ps
-    n <- translateQName qn
-    return $ listComb (Const n) cs
-translatePat (Exts.PTuple _) = errStr "tuple patterns are not supported"
-translatePat (Exts.PList ps) = foldr (\p cs -> Right (Const ":") `mApp` translatePat p `mApp` cs) (Right $ Const "[]") ps
-translatePat (Exts.PParen p) = translatePat p
-translatePat (Exts.PAsPat _ _) = errStr "as patterns are not supported"
-translatePat Exts.PWildCard = errStr "wildcard patterns are not supported"
-translatePat f = errStr $ "unsupported pattern type: " ++ show f
-
-translateQOp :: (String -> Err Term) -> QOp -> Err Term
-translateQOp _ (QConOp op) = Const <$> translateQName op
-translateQOp f (QVarOp op) = f =<< translateQName op
-
-translateQName :: QName -> Err String
-translateQName (Qual (ModuleName m) (Ident n)) = return $ m ++ "." ++ n
-translateQName (Qual (ModuleName m) (Symbol n)) = return $ m ++ "." ++ n
-translateQName (UnQual (Ident n)) = return n
-translateQName (UnQual (Symbol n)) = return n
-translateQName (Special UnitCon) = return "()"
-translateQName (Special ListCon) = return "[]"
-translateQName (Special FunCon) = return "->"
-translateQName (Special Cons) = return ":"
-translateQName q = errStr $ "Unsupported QName '" ++ show q ++ "'."
-
-translateName :: Name -> String
-translateName (Ident s) = s
-translateName (Symbol s) = s
-
-
-{- Parser for the expression syntax ---------------------------------}
-
-iparseTermRaw :: ParseMode -> (String -> Err Term) -> String -> Err Term
-iparseTermRaw mode f s = errCtxt (text "Parsing term" <+> quotes (text s)) $
-    case parseExpWithMode mode s of
-        ParseOk p -> translateExp f p
-        x@(ParseFailed _ _) -> errStr $ show x
-
-defaultToFree :: [String] -> String -> Err Term
-defaultToFree consts x = return $ if x `elem` consts then Const x else Free x
-
-defaultToSchematic :: [String] -> String -> Err Term
-defaultToSchematic consts x = return $ if x `elem` consts then Const x else Schematic x
-
-checkHasPropEq :: Term -> Err ()
-checkHasPropEq term = when (hasPropEq term) $
-    errStr $ "A term may not include the equality symbol '" ++ symPropEq ++ "'."
-  where
-    hasPropEq (Application f a) = hasPropEq f || hasPropEq a
-    hasPropEq (Const c) | c == symPropEq = True
-    hasPropEq _ = False
-
-iparseTerm :: (String -> Err Term)-> String -> Err Term
-iparseTerm f s = do
-    term <- iparseTermRaw baseParseMode f s
-    checkHasPropEq term
-    return term
-
-iparseProp :: (String -> Err Term) -> String -> Err Prop
-iparseProp f s = do
-    term <- iparseTermRaw mode f' s
-    (lhs, rhs) <- case term of
-        Application (Application (Const c) lhs) rhs | c == symPropEq -> Right (lhs, rhs)
-        _ -> errStr $ "Term '" ++ s ++ "' is not a proposition"
-    checkHasPropEq lhs
-    checkHasPropEq rhs
-    return $ Prop lhs rhs
-  where
-    f' x = if x == symPropEq then return $ Const x else f x
-    mode = baseParseMode { fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol symPropEq) : baseFixities }
 
 {- Parser for the outer syntax --------------------------------------}
 
@@ -745,7 +634,3 @@ caseParser = do
 
 manySpacesOrComment :: Parsec [Char] u ()
 manySpacesOrComment = skipMany $ (space >> return ()) <|> commentParsers
-
--- Parse Mode with Fixities
-baseParseMode :: ParseMode
-baseParseMode = defaultParseMode { fixities = Just baseFixities }

@@ -3,8 +3,12 @@ module Test.Info2.Cyp.Term
     , Prop(..)
     , CypFixity(..), unparseFixities -- XXX
     , collectFrees
+    , defaultToFree
+    , defaultToSchematic
     , generalizeExcept
     , generalizeExceptProp
+    , iparseTerm
+    , iparseProp
     , isFree
     , isSchematic
     , listComb
@@ -16,16 +20,25 @@ module Test.Info2.Cyp.Term
     , substProp
     , symPropEq
     , symUMinus
+    , translateExp
+    , translateName
+    , translatePat
     , unparseTerm
     , unparseProp
     )
 where
 
-import Control.Monad ((>=>), liftM2)
+import Control.Applicative ((<$>))
+import Control.Monad ((>=>), liftM2, when)
 import Data.List (find)
+import Data.Traversable (traverse)
+import qualified Language.Haskell.Exts.Parser as P
 import Language.Haskell.Exts.Fixity (Fixity (..), baseFixities)
-import Language.Haskell.Exts.Syntax (Literal (..), QName(..), SpecialCon (..), Name (..), ModuleName (..), Assoc (..),  Boxed(..))
-import Text.PrettyPrint (parens, text, (<+>), Doc)
+import qualified Language.Haskell.Exts.Syntax as Exts
+import Language.Haskell.Exts.Syntax (Assoc (..),  Boxed(..), Exp(..), Literal (..), QName (..), QOp (..), SpecialCon (..), Name (..), ModuleName (..))
+import Text.PrettyPrint (parens, quotes, text, (<+>), Doc)
+
+import Test.Info2.Cyp.Util
 
 data Term
     = Application Term Term
@@ -115,7 +128,106 @@ substProp (Prop l r) s = Prop (subst l s) (subst r s)
 generalizeExceptProp :: [String] -> Prop -> Prop
 generalizeExceptProp vs (Prop l r) = Prop (generalizeExcept vs l) (generalizeExcept vs r)
 
-{-- Pretty Printing --}
+
+{- Parsing ----------------------------------------------------------}
+
+iparseTermRaw :: P.ParseMode -> (String -> Err Term) -> String -> Err Term
+iparseTermRaw mode f s = errCtxt (text "Parsing term" <+> quotes (text s)) $
+    case P.parseExpWithMode mode s of
+        P.ParseOk p -> translateExp f p
+        x@(P.ParseFailed _ _) -> errStr $ show x
+
+defaultToFree :: [String] -> String -> Err Term
+defaultToFree consts x = return $ if x `elem` consts then Const x else Free x
+
+defaultToSchematic :: [String] -> String -> Err Term
+defaultToSchematic consts x = return $ if x `elem` consts then Const x else Schematic x
+
+checkHasPropEq :: Term -> Err ()
+checkHasPropEq term = when (hasPropEq term) $
+    errStr $ "A term may not include the equality symbol '" ++ symPropEq ++ "'."
+  where
+    hasPropEq (Application f a) = hasPropEq f || hasPropEq a
+    hasPropEq (Const c) | c == symPropEq = True
+    hasPropEq _ = False
+
+iparseTerm :: (String -> Err Term)-> String -> Err Term
+iparseTerm f s = do
+    term <- iparseTermRaw mode f s
+    checkHasPropEq term
+    return term
+  where mode = P.defaultParseMode { P.fixities = Just baseFixities }
+
+
+iparseProp :: (String -> Err Term) -> String -> Err Prop
+iparseProp f s = do
+    term <- iparseTermRaw mode f' s
+    (lhs, rhs) <- case term of
+        Application (Application (Const c) lhs) rhs | c == symPropEq -> Right (lhs, rhs)
+        _ -> errStr $ "Term '" ++ s ++ "' is not a proposition"
+    checkHasPropEq lhs
+    checkHasPropEq rhs
+    return $ Prop lhs rhs
+  where
+    f' x = if x == symPropEq then return $ Const x else f x
+    mode = P.defaultParseMode { P.fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol symPropEq) : baseFixities }
+
+
+{- Transform Exp to Term ---------------------------------------------}
+
+translateExp :: (String -> Err Term) -> Exp -> Err Term
+translateExp f (Var v) = f =<< translateQName v
+translateExp _ (Con c) = Const <$> translateQName c
+translateExp _ (Lit l) = Right $ Literal l
+translateExp f (InfixApp e1 op e2) =
+    translateQOp f op `mApp` translateExp f e1 `mApp` translateExp f e2
+translateExp f (App e1 e2) = translateExp f e1 `mApp` translateExp f e2
+translateExp f (NegApp e) = return (Const symUMinus) `mApp` translateExp f e
+translateExp f (LeftSection e op) = translateQOp f op `mApp` translateExp f e
+translateExp f (Paren e) = translateExp f e
+translateExp f (List l) = foldr (\e es -> Right (Const ":") `mApp` translateExp f e `mApp` es) (Right $ Const "[]") l
+translateExp _ e = errStr $ "Unsupported expression syntax used: " ++ show e
+
+translatePat :: Exts.Pat -> Err Term
+translatePat (Exts.PVar v) = Right $ Schematic $ translateName v
+translatePat (Exts.PLit l) = Right $ Literal l
+-- PNeg?
+translatePat (Exts.PNPlusK _ _) = errStr "n+k patterns are not supported"
+translatePat (Exts.PInfixApp p1 qn p2) =
+    (Const <$> translateQName qn) `mApp` translatePat p1 `mApp` translatePat p2
+translatePat (Exts.PApp qn ps) = do
+    cs <- traverse translatePat ps
+    n <- translateQName qn
+    return $ listComb (Const n) cs
+translatePat (Exts.PTuple _) = errStr "tuple patterns are not supported"
+translatePat (Exts.PList ps) = foldr (\p cs -> Right (Const ":") `mApp` translatePat p `mApp` cs) (Right $ Const "[]") ps
+translatePat (Exts.PParen p) = translatePat p
+translatePat (Exts.PAsPat _ _) = errStr "as patterns are not supported"
+translatePat Exts.PWildCard = errStr "wildcard patterns are not supported"
+translatePat f = errStr $ "unsupported pattern type: " ++ show f
+
+translateQOp :: (String -> Err Term) -> QOp -> Err Term
+translateQOp _ (QConOp op) = Const <$> translateQName op
+translateQOp f (QVarOp op) = f =<< translateQName op
+
+translateQName :: QName -> Err String
+translateQName (Qual (ModuleName m) (Ident n)) = return $ m ++ "." ++ n
+translateQName (Qual (ModuleName m) (Symbol n)) = return $ m ++ "." ++ n
+translateQName (UnQual (Ident n)) = return n
+translateQName (UnQual (Symbol n)) = return n
+translateQName (Special UnitCon) = return "()"
+translateQName (Special ListCon) = return "[]"
+translateQName (Special FunCon) = return "->"
+translateQName (Special Cons) = return ":"
+translateQName q = errStr $ "Unsupported QName '" ++ show q ++ "'."
+
+translateName :: Name -> String
+translateName (Ident s) = s
+translateName (Symbol s) = s
+
+
+
+{- Pretty printing --------------------------------------------------}
 
 data Prio = IntPrio Int | AppPrio | AtomPrio deriving (Eq, Show)
 data CypFixity = CypFixity Assoc Prio String deriving Show
