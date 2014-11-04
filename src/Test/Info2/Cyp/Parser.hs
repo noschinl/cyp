@@ -1,4 +1,16 @@
-module Test.Info2.Cyp.Parser where
+module Test.Info2.Cyp.Parser
+    ( ParseLemma (..)
+    , ParseCase (..)
+    , ParseProof (..)
+    , cthyParser
+    , cprfParser
+    , readAxiom
+    , readDataType
+    , readFunc
+    , readGoal
+    , readSym
+    )
+where
 
 import Control.Applicative ((<$>))
 import Data.Char
@@ -71,14 +83,14 @@ longcommentParser =
 commentParsers :: Parsec [Char] u ()
 commentParsers = commentParser <|> longcommentParser <?> "comment"
 
-masterParser :: Parsec [Char] () [ParseDeclTree]
-masterParser =
-    do result <- many masterParsers
+cthyParser :: Parsec [Char] () [ParseDeclTree]
+cthyParser =
+    do result <- many cthyParsers
        eof
        return result
 
-masterParsers :: Parsec [Char] () ParseDeclTree
-masterParsers =
+cthyParsers :: Parsec [Char] () ParseDeclTree
+cthyParsers =
     do manySpacesOrComment
        result <- (goalParser <|> dataParser <|> axiomParser <|> symParser <|> try funParser)
        return result
@@ -166,8 +178,8 @@ lemmaParser =
         manySpacesOrComment
         return $ ParseLemma name prop prf
 
-studentParser ::  Parsec [Char] Env [ParseLemma]
-studentParser =
+cprfParser ::  Parsec [Char] Env [ParseLemma]
+cprfParser =
     do  lemmas <- many1 lemmaParser
         eof
         return lemmas

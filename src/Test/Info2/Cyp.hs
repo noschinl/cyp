@@ -44,7 +44,7 @@ proof (mName, mContent) (sName, sContent) = do
 
 processMasterFile :: FilePath -> String -> Err Env
 processMasterFile path content = errCtxtStr "Parsing background theory" $ do
-    mResult <- eitherToErr $ Parsec.parse masterParser path content
+    mResult <- eitherToErr $ Parsec.parse cthyParser path content
     dts <- readDataType mResult
     syms <- readSym mResult
     (fundefs, consts) <- readFunc syms mResult
@@ -55,7 +55,7 @@ processMasterFile path content = errCtxtStr "Parsing background theory" $ do
 
 processProofFile :: Env -> FilePath -> String -> Err [ParseLemma]
 processProofFile env path content = errCtxtStr "Parsing proof" $
-    eitherToErr $ Parsec.runParser studentParser env path content
+    eitherToErr $ Parsec.runParser cprfParser env path content
 
 checkProofs :: Env -> [ParseLemma] -> Err [Named Prop]
 checkProofs env []  = Right $ axioms env
