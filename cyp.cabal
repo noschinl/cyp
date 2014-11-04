@@ -9,8 +9,10 @@ library
   ghc-options:       -W
   exposed-modules:   Test.Info2.Cyp
   other-modules:
-      Test.Info2.Cyp.Term
+      Test.Info2.Cyp.Parser
+    , Test.Info2.Cyp.Term
     , Test.Info2.Cyp.Trace
+    , Test.Info2.Cyp.Types
     , Test.Info2.Cyp.Util
   build-depends:
       base ==4.*
