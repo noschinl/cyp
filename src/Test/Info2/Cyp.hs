@@ -20,8 +20,6 @@ import Test.Info2.Cyp.Term
 import Test.Info2.Cyp.Types
 import Test.Info2.Cyp.Util
 
-import Test.Info2.Cyp.Trace
-
 {- Default constants -------------------------------------------------}
 
 defConsts :: [String]
@@ -141,31 +139,6 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
                     $+$ (text "does not match stated goal:" `indent` (unparseProp toShow))
             return consName
         return consName
-
-
---        let (caseT, env') = variantFixesTerm env $ pcCons pc
---        (consName, consArgNs) <- lookupCons caseT dt
---        let argsNames = map snd consArgNs
---
---        let (prop', env'') = declareProp env' prop
---        let subgoal = substProp prop [(over, caseT)]
---        let toShow = generalizeExceptProp argsNames $ pcToShow pc
---        when (subgoal /= toShow) $ err
---             $ text "'To show' does not match subgoal:"
---             `indent` (text "To show: " <+> unparseProp toShow)
---
---        let indHyps = map (substProp prop . instOver) . filter (\x -> fst x == TRec) $ consArgNs
---
---        userHyps <- checkPcHyps argsNames indHyps $ pcIndHyps pc
---
---        let ParseEquation eqns = pcEqns pc -- XXX
---        let eqns' = generalizeExcept argsNames <$> eqns
---
---        eqnProp <- validEquationProof (userHyps ++ axioms env) eqns' subgoal
---        when (eqnProp /= toShow) $
---            err $ (text "Result of equational proof" `indent` (unparseProp eqnProp))
---                $+$ (text "does not match stated goal:" `indent` (unparseProp toShow))
---        return consName
 
     lookupCons t (DataType _ conss) = errCtxt invCaseMsg $ do
         (consName, consArgs) <- findCons cons
