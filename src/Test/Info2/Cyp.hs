@@ -15,7 +15,7 @@ import Data.Traversable (Traversable, traverse)
 import Text.Parsec as Parsec
 import qualified Language.Haskell.Exts.Parser as P
 import qualified Language.Haskell.Exts.Syntax as Exts
-import Text.PrettyPrint (comma, fsep, punctuate, quotes, text, vcat, (<>), (<+>), ($+$), render)
+import Text.PrettyPrint (comma, fsep, punctuate, quotes, text, vcat, (<>), (<+>), ($+$))
 
 import Test.Info2.Cyp.Term
 --import Test.Info2.Cyp.Trace
