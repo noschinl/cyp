@@ -297,7 +297,9 @@ upModeRaw :: UnparseMode String
 upModeRaw = UnparseMode { unparseFree = id, unparseSchematic = \x -> "?" ++ x }
 
 upModeIdx :: UnparseMode IdxName
-upModeIdx = UnparseMode { unparseFree = fst , unparseSchematic = \(x,_) -> "?" ++ x }
+upModeIdx = UnparseMode
+    { unparseFree = \(x,n) -> x ++ "~" ++ show n
+    , unparseSchematic = \(x,n) -> "?" ++ x ++ "~" ++ show n }
 
 unparseAbsTerm :: UnparseMode a -> AbsTerm a -> Doc
 unparseAbsTerm mode = finalize . unparseAbsTermRaw mode

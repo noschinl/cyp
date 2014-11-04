@@ -12,7 +12,7 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Traversable (traverse)
 import qualified Text.Parsec as Parsec
-import Text.PrettyPrint (Doc, comma, fsep, punctuate, quotes, text, vcat, (<>), (<+>), ($+$))
+import Text.PrettyPrint (Doc, colon, comma, fsep, punctuate, quotes, text, vcat, (<>), (<+>), ($+$))
 
 import Test.Info2.Cyp.Env
 import Test.Info2.Cyp.Parser
@@ -64,29 +64,30 @@ processProofFile env path content = errCtxtStr "Parsing proof" $
 
 checkProofs :: Env -> [ParseLemma] -> Err [Named Prop]
 checkProofs env []  = Right $ axioms env
-checkProofs env (l@(ParseLemma name prop _) : ls) = do
-    proved <- errCtxt (text "Lemma:" <+> unparseRawProp prop) $
-        checkProof env l
-    checkProofs (env { axioms = Named name proved : axioms env }) ls
+checkProofs env (l : ls) = do
+    (_, env') <- checkLemma l env
+    checkProofs env' ls
 
+checkLemma :: ParseLemma -> Env -> Err (Prop, Env)
+checkLemma (ParseLemma name rprop proof) env = errCtxt (text "Lemma" <+> text name <> colon <+> unparseRawProp rprop) $ do
+    let (prop, env') = declareProp rprop env
+    checkProof prop proof env'
+    let proved = generalizeEnvProp env prop
+    return (proved, env { axioms = Named name proved : axioms env })
 
-
-checkProof :: Env -> ParseLemma -> Err Prop
-checkProof env (ParseLemma _ rprop (ParseEquation reqns)) = errCtxtStr "Equational proof" $ do
-    let ((prop, eqns), env') = flip runState env $ do
-          prop <- state (declareProp rprop)
-          eqns <- traverse (state . declareTerm) reqns
-          return (prop, eqns)
+checkProof :: Prop -> ParseProof -> Env -> Err Prop
+checkProof prop (ParseEquation reqns) env = errCtxtStr "Equational proof" $ do
+    let (eqns, env') = flip runState env $ do
+          traverse (state . declareTerm) reqns
     validEquationProof (axioms env') eqns prop
     return prop
-checkProof env (ParseLemma _ rprop (ParseInduction dtRaw overRaw casesRaw)) = errCtxt ctxtMsg $ do
-    (prop, _) <- flip runStateT env $ do
-        prop <- state (declareProp rprop)
+checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ do
+    flip runStateT env $ do
         dt <- lift (validateDatatype dtRaw)
         over <- validateOver overRaw
         lift $ validateCases prop dt over casesRaw
         return prop
-    return (generalizeExceptProp [] prop) -- XXX fix!
+    return prop
   where
     ctxtMsg = text "Induction over variable"
         <+> quotes (unparseRawTerm overRaw) <+> text "of type" <+> quotes (text dtRaw)
