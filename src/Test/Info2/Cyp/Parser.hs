@@ -43,7 +43,7 @@ data ParseCase = ParseCase
     }
 
 data ParseProof
-    = ParseInduction String String [ParseCase] -- DataTyp, Over, Cases
+    = ParseInduction String Term [ParseCase] -- DataTyp, Over, Cases
     | ParseEquation (EqnSeqq Term)
 
 
@@ -137,7 +137,7 @@ inductionProofParser =
     do  keyword "Proof by induction on"
         datatype <- many (noneOf " \t")
         lineSpaces
-        over <- toEol
+        over <- termParser defaultToFree
         manySpacesOrComment
         cases <- many1 caseParser
         manySpacesOrComment

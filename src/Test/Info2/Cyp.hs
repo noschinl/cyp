@@ -74,7 +74,7 @@ checkProof env (ParseLemma _ prop (ParseInduction dtRaw overRaw casesRaw)) = err
     validateCases dt over casesRaw
   where
     ctxtMsg = text "Induction over variable"
-        <+> quotes (text overRaw) <+> text "of type" <+> quotes (text dtRaw)
+        <+> quotes (unparseTerm overRaw) <+> text "of type" <+> quotes (text dtRaw)
 
     lookupCons t (DataType _ conss) = errCtxt invCaseMsg $ do
         (consName, consArgs) <- findCons cons
@@ -140,12 +140,9 @@ checkProof env (ParseLemma _ prop (ParseInduction dtRaw overRaw casesRaw)) = err
             ++ punctuate comma (map (quotes . text . getDtName) $ datatypes env)
         Just dt -> Right dt
 
-    validateOver s = do
-        term <- iparseTerm (defaultToFree $ constants env) s
-        case term of
-            Free v -> return v
-            _ -> err $ text "Term" <+> quotes (text s)
-                <+> text "is not a valid induction variable"
+    validateOver (Free v) = return v
+    validateOver t = err $ text "Term" <+> quotes (unparseTerm t)
+            <+> text "is not a valid induction variable"
 
     validateCases dt over cases = do
         caseNames <- traverse (validateCase dt over) cases
