@@ -28,7 +28,6 @@ module Test.Info2.Cyp.Term
     )
 where
 
-import Control.Applicative ((<$>))
 import Control.Monad ((>=>), liftM2, when)
 import Data.List (find)
 import Data.Traversable (traverse)
@@ -176,9 +175,9 @@ iparseProp f s = do
 {- Transform Exp to Term ---------------------------------------------}
 
 translateExp :: (String -> Err Term) -> Exp -> Err Term
-translateExp f (Var v) = f =<< translateQName v
-translateExp _ (Con c) = Const <$> translateQName c
-translateExp _ (Lit l) = Right $ Literal l
+translateExp f (Var v) = f $ translateQName v
+translateExp _ (Con c) = return . Const $ translateQName c
+translateExp _ (Lit l) = return $ Literal l
 translateExp f (InfixApp e1 op e2) =
     translateQOp f op `mApp` translateExp f e1 `mApp` translateExp f e2
 translateExp f (App e1 e2) = translateExp f e1 `mApp` translateExp f e2
@@ -194,11 +193,10 @@ translatePat (Exts.PLit l) = Right $ Literal l
 -- PNeg?
 translatePat (Exts.PNPlusK _ _) = errStr "n+k patterns are not supported"
 translatePat (Exts.PInfixApp p1 qn p2) =
-    (Const <$> translateQName qn) `mApp` translatePat p1 `mApp` translatePat p2
+    (return . Const $ translateQName qn) `mApp` translatePat p1 `mApp` translatePat p2
 translatePat (Exts.PApp qn ps) = do
     cs <- traverse translatePat ps
-    n <- translateQName qn
-    return $ listComb (Const n) cs
+    return $ listComb (Const $ translateQName qn) cs
 translatePat (Exts.PTuple _) = errStr "tuple patterns are not supported"
 translatePat (Exts.PList ps) = foldr (\p cs -> Right (Const ":") `mApp` translatePat p `mApp` cs) (Right $ Const "[]") ps
 translatePat (Exts.PParen p) = translatePat p
@@ -207,19 +205,22 @@ translatePat Exts.PWildCard = errStr "wildcard patterns are not supported"
 translatePat f = errStr $ "unsupported pattern type: " ++ show f
 
 translateQOp :: (String -> Err Term) -> QOp -> Err Term
-translateQOp _ (QConOp op) = Const <$> translateQName op
-translateQOp f (QVarOp op) = f =<< translateQName op
+translateQOp _ (QConOp op) = return . Const $ translateQName op
+translateQOp f (QVarOp op) = f $ translateQName op
 
-translateQName :: QName -> Err String
-translateQName (Qual (ModuleName m) (Ident n)) = return $ m ++ "." ++ n
-translateQName (Qual (ModuleName m) (Symbol n)) = return $ m ++ "." ++ n
-translateQName (UnQual (Ident n)) = return n
-translateQName (UnQual (Symbol n)) = return n
-translateQName (Special UnitCon) = return "()"
-translateQName (Special ListCon) = return "[]"
-translateQName (Special FunCon) = return "->"
-translateQName (Special Cons) = return ":"
-translateQName q = errStr $ "Unsupported QName '" ++ show q ++ "'."
+translateQName :: QName -> String
+translateQName (Qual (ModuleName m) (Ident n)) = m ++ "." ++ n
+translateQName (Qual (ModuleName m) (Symbol n)) = m ++ "." ++ n
+translateQName (UnQual (Ident n)) = n
+translateQName (UnQual (Symbol n)) = n
+translateQName (Special UnitCon) = "()"
+translateQName (Special ListCon) = "[]"
+translateQName (Special FunCon) = "->"
+translateQName (Special Cons) = ":"
+translateQName (Special (TupleCon b n)) = case b of
+    Boxed -> "(#" ++ replicate n ',' ++ "#)"
+    Unboxed -> "(" ++ replicate n ',' ++ ")"
+translateQName (Special UnboxedSingleCon) = "(# #)"
 
 translateName :: Name -> String
 translateName (Ident s) = s
@@ -243,20 +244,7 @@ instance Ord Prio where
     compare AtomPrio AtomPrio = EQ
 
 unparseFixities :: [CypFixity]
-unparseFixities = map (\(Fixity assoc prio name) -> CypFixity assoc (IntPrio prio) $ trans name) baseFixities
-  where
-    trans (Qual (ModuleName m) (Ident n)) = m ++ "." ++ n
-    trans (Qual (ModuleName m) (Symbol n)) = m ++ "." ++ n
-    trans (UnQual (Ident n)) = n
-    trans (UnQual (Symbol n)) = n
-    trans (Special UnitCon) = "()"
-    trans (Special ListCon) = "[]"
-    trans (Special FunCon) = "->"
-    trans (Special Cons) = ":"
-    trans (Special (TupleCon b n)) = case b of
-        Boxed -> "(#" ++ replicate n ',' ++ "#)"
-        Unboxed -> "(" ++ replicate n ',' ++ ")"
-    trans (Special UnboxedSingleCon) = "(# #)"
+unparseFixities = map (\(Fixity assoc prio name) -> CypFixity assoc (IntPrio prio) $ translateQName name) baseFixities
 
 atomFixity :: (Assoc, Prio, CypApplied)
 atomFixity = (AssocNone, AtomPrio, AppliedFull)
