@@ -95,7 +95,7 @@ checkProof env (ParseLemma _ prop (ParseInduction dtRaw overRaw casesRaw)) = err
       where
         missingCase caseNames = find (\(name, _) -> name `notElem` caseNames) (getDtConss dt)
 
-    validateCase :: DataType -> String -> ParseCase -> Err String
+    validateCase :: DataType -> IdxName -> ParseCase -> Err String
     validateCase dt over pc = errCtxt (text "Case" <+> quotes (unparseTerm $ pcCons pc)) $ do
         (consName, consArgNs) <- lookupCons (pcCons pc) dt
         let argsNames = map snd consArgNs
@@ -143,7 +143,7 @@ checkProof env (ParseLemma _ prop (ParseInduction dtRaw overRaw casesRaw)) = err
 
         invCaseMsg = text "Invalid case" <+> quotes (unparseTerm t) <> comma
 
-    checkPcHyps :: [String] -> [Prop] -> [Named Prop] -> Err [Named Prop]
+    checkPcHyps :: [IdxName] -> [Prop] -> [Named Prop] -> Err [Named Prop]
     checkPcHyps instVars indHyps pcHyps = do
         let inst = map (\v -> (v, Free v)) instVars
         let userHyps = map (fmap (flip substProp inst)) $ pcHyps

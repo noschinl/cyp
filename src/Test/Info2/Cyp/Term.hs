@@ -1,5 +1,6 @@
 module Test.Info2.Cyp.Term
-    ( Term(..)
+    ( IdxName
+    , Term(..)
     , Prop(..)
     , CypFixity(..), unparseFixities -- XXX
     , collectFrees
@@ -39,11 +40,13 @@ import Text.PrettyPrint (parens, quotes, text, (<+>), Doc)
 
 import Test.Info2.Cyp.Util
 
+type IdxName = (String, Int)
+
 data Term
     = Application Term Term
     | Const String
-    | Free String -- Free variable
-    | Schematic String -- Schematic variable
+    | Free IdxName -- Free variable
+    | Schematic IdxName -- Schematic variable
     | Literal Literal
     deriving (Show, Eq)
 
@@ -64,7 +67,7 @@ mApp = liftM2 Application
 
 infixl 1 `mApp`
 
-match :: Term -> Term -> [(String, Term)] -> Maybe [(String, Term)]
+match :: Term -> Term -> [(IdxName, Term)] -> Maybe [(IdxName, Term)]
 match (Application f a) (Application f' a') s = match f f' s >>= match a a'
 match t (Schematic v) s = case lookup v s of
     Nothing -> Just $ (v,t) : s
@@ -73,7 +76,7 @@ match term pat s
     | term == pat = Just s
     | otherwise = Nothing
 
-subst :: Term -> [(String, Term)] -> Term
+subst :: Term -> [(IdxName, Term)] -> Term
 subst (Application f a) s = Application (subst f s) (subst a s)
 subst (Schematic v) s = case lookup v s of
       Nothing -> Schematic v
@@ -83,7 +86,7 @@ subst t _ = t
 -- Generalizes a term by turning Frees into Schematics.
 -- XXX: Result may not be as general as intended, as
 -- generalizing may reuse names ...
-generalizeExcept :: [String] -> Term -> Term
+generalizeExcept :: [IdxName] -> Term -> Term
 generalizeExcept vs (Application s t) = Application (generalizeExcept vs s) (generalizeExcept vs t)
 generalizeExcept vs (Free v)
     | v `elem` vs = Free v
@@ -91,7 +94,7 @@ generalizeExcept vs (Free v)
 generalizeExcept _ t = t
 
 
-collectFrees :: Term -> [String]-> [String]
+collectFrees :: Term -> [IdxName]-> [IdxName]
 collectFrees (Application f a) xs = collectFrees f $ collectFrees a xs
 collectFrees (Const _) xs = xs
 collectFrees (Free v) xs = v : xs
@@ -115,16 +118,16 @@ symUMinus = "-"
 
 {- Prop operations --------------------------------------------------}
 
-matchProp :: Prop -> Prop -> [(String, Term)] -> Maybe [(String, Term)]
+matchProp :: Prop -> Prop -> [(IdxName, Term)] -> Maybe [(IdxName, Term)]
 matchProp (Prop l r) (Prop l' r') = match l l' >=> match r r'
 
-substProp :: Prop -> [(String, Term)] -> Prop
+substProp :: Prop -> [(IdxName, Term)] -> Prop
 substProp (Prop l r) s = Prop (subst l s) (subst r s)
 
 -- Generalizes a prop by turning Frees into Schematics.
 -- XXX: Result may not be as general as intended, as
 -- generalizing may reuse names ...
-generalizeExceptProp :: [String] -> Prop -> Prop
+generalizeExceptProp :: [IdxName] -> Prop -> Prop
 generalizeExceptProp vs (Prop l r) = Prop (generalizeExcept vs l) (generalizeExcept vs r)
 
 
@@ -137,10 +140,10 @@ iparseTermRaw mode f s = errCtxt (text "Parsing term" <+> quotes (text s)) $
         x@(P.ParseFailed _ _) -> errStr $ show x
 
 defaultToFree :: [String] -> String -> Err Term
-defaultToFree consts x = return $ if x `elem` consts then Const x else Free x
+defaultToFree consts x = return $ if x `elem` consts then Const x else Free (x,0) -- XXX: Consider?
 
 defaultToSchematic :: [String] -> String -> Err Term
-defaultToSchematic consts x = return $ if x `elem` consts then Const x else Schematic x
+defaultToSchematic consts x = return $ if x `elem` consts then Const x else Schematic (x, 0) -- XXX: Consider?
 
 checkHasPropEq :: Term -> Err ()
 checkHasPropEq term = when (hasPropEq term) $
@@ -188,7 +191,7 @@ translateExp f (List l) = foldr (\e es -> Right (Const ":") `mApp` translateExp 
 translateExp _ e = errStr $ "Unsupported expression syntax used: " ++ show e
 
 translatePat :: Exts.Pat -> Err Term
-translatePat (Exts.PVar v) = Right $ Schematic $ translateName v
+translatePat (Exts.PVar v) = Right $ Schematic (translateName v, 0)
 translatePat (Exts.PLit l) = Right $ Literal l
 -- PNeg?
 translatePat (Exts.PNPlusK _ _) = errStr "n+k patterns are not supported"
@@ -301,8 +304,8 @@ unparseTermRaw (Const c) =
     case find (\(CypFixity _ _ n) -> n == c) unparseFixities of
         Nothing -> (text c, atomFixity)
         Just (CypFixity assoc prio _) -> (text c, (assoc, prio, Applied0))
-unparseTermRaw (Free v) = (text v, atomFixity)
-unparseTermRaw (Schematic v) = (text $ "?" ++ v, atomFixity)
+unparseTermRaw (Free (v,_)) = (text v, atomFixity) -- XXX: unparse with showing index?
+unparseTermRaw (Schematic (v,_)) = (text $ "?" ++ v, atomFixity) -- XXX: unparse with showing index?
 
 unparseLiteral :: Literal -> String
 unparseLiteral (Char c) = show c

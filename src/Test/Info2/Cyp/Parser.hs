@@ -286,7 +286,7 @@ readDataType = sequence . mapMaybe parseDataType
     parseDataType _ = Nothing
 
     parseCons :: String -> Err Term
-    parseCons = iparseTerm (Right . Free)
+    parseCons = iparseTerm (\x -> Right $ Free (x, 0))
 
     constName (Const c) = return c
     constName term = errStr $ "Term '" ++ show term ++ "' is not a constant."
@@ -340,7 +340,7 @@ readFunc syms pds = do
         return $ Named ("def " ++ funSym) $ Prop (listComb (Const funSym) tPat) rhs
       where
         pvars = concatMap collectPVars pats
-        tv s | s `elem` pvars = return $ Schematic s
+        tv s | s `elem` pvars = return $ Schematic (s, 0)
              | s `elem` consts = return $ Const s
              | otherwise = errStr $ "Unbound variable '" ++ s ++ "' not allowed on rhs"
 
