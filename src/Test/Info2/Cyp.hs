@@ -76,27 +76,24 @@ checkProof env (ParseLemma _ prop (ParseInduction dtRaw overRaw casesRaw)) = err
     ctxtMsg = text "Induction over variable"
         <+> quotes (unparseTerm overRaw) <+> text "of type" <+> quotes (text dtRaw)
 
-    lookupCons t (DataType _ conss) = errCtxt invCaseMsg $ do
-        (consName, consArgs) <- findCons cons
-        argNames <- traverse argName args
-        when (not $ nub args == args) $
-            errStr "Constructor arguments must be distinct"
-        when (not $ length args == length consArgs) $
-            errStr "Invalid number of arguments"
-        return (consName, zip consArgs argNames)
+    validateDatatype name = case find (\dt -> getDtName dt == name) (datatypes env) of
+        Nothing -> err $ fsep $
+            [ text "Invalid datatype" <+> quotes (text name) <> text "."
+            , text "Expected one of:" ]
+            ++ punctuate comma (map (quotes . text . getDtName) $ datatypes env)
+        Just dt -> Right dt
+
+    validateOver (Free v) = return v
+    validateOver t = err $ text "Term" <+> quotes (unparseTerm t)
+            <+> text "is not a valid induction variable"
+
+    validateCases dt over cases = do
+        caseNames <- traverse (validateCase dt over) cases
+        case missingCase caseNames of
+            Nothing -> return ()
+            Just (name, _) -> errStr $ "Missing case '" ++ name ++ "'"
       where
-        (cons, args) = stripComb t
-
-        argName (Free v) = return v
-        argName _ = errStr "Constructor arguments must be variables"
-
-        findCons (Const name) = case find (\c -> fst c == name) conss of
-            Nothing -> err (text "Invalid constructor, expected one of"
-                <+> (fsep . punctuate comma . map (quotes . text . fst) $ conss))
-            Just x -> return x
-        findCons _ = errStr "Outermost symbol is not a constant"
-
-        invCaseMsg = text "Invalid case" <+> quotes (unparseTerm t) <> comma
+        missingCase caseNames = find (\(name, _) -> name `notElem` caseNames) (getDtConss dt)
 
     validateCase :: DataType -> String -> ParseCase -> Err String
     validateCase dt over pc = errCtxt (text "Case" <+> quotes (unparseTerm $ pcCons pc)) $ do
@@ -124,6 +121,28 @@ checkProof env (ParseLemma _ prop (ParseInduction dtRaw overRaw casesRaw)) = err
       where
         instOver (_, n) = [(over, Free n)]
 
+    lookupCons t (DataType _ conss) = errCtxt invCaseMsg $ do
+        (consName, consArgs) <- findCons cons
+        argNames <- traverse argName args
+        when (not $ nub args == args) $
+            errStr "Constructor arguments must be distinct"
+        when (not $ length args == length consArgs) $
+            errStr "Invalid number of arguments"
+        return (consName, zip consArgs argNames)
+      where
+        (cons, args) = stripComb t
+
+        argName (Free v) = return v
+        argName _ = errStr "Constructor arguments must be variables"
+
+        findCons (Const name) = case find (\c -> fst c == name) conss of
+            Nothing -> err (text "Invalid constructor, expected one of"
+                <+> (fsep . punctuate comma . map (quotes . text . fst) $ conss))
+            Just x -> return x
+        findCons _ = errStr "Outermost symbol is not a constant"
+
+        invCaseMsg = text "Invalid case" <+> quotes (unparseTerm t) <> comma
+
     checkPcHyps :: [String] -> [Prop] -> [Named Prop] -> Err [Named Prop]
     checkPcHyps instVars indHyps pcHyps = do
         let inst = map (\v -> (v, Free v)) instVars
@@ -132,25 +151,6 @@ checkProof env (ParseLemma _ prop (ParseInduction dtRaw overRaw casesRaw)) = err
             True -> return ()
             False -> err $ text $ "Induction hypothesis " ++ name ++ " is not valid"
         return userHyps
-
-    validateDatatype name = case find (\dt -> getDtName dt == name) (datatypes env) of
-        Nothing -> err $ fsep $
-            [ text "Invalid datatype" <+> quotes (text name) <> text "."
-            , text "Expected one of:" ]
-            ++ punctuate comma (map (quotes . text . getDtName) $ datatypes env)
-        Just dt -> Right dt
-
-    validateOver (Free v) = return v
-    validateOver t = err $ text "Term" <+> quotes (unparseTerm t)
-            <+> text "is not a valid induction variable"
-
-    validateCases dt over cases = do
-        caseNames <- traverse (validateCase dt over) cases
-        case missingCase caseNames of
-            Nothing -> return ()
-            Just (name, _) -> errStr $ "Missing case '" ++ name ++ "'"
-      where
-        missingCase caseNames = find (\(name, _) -> name `notElem` caseNames) (getDtConss dt)
 
     getDtConss (DataType _ conss) = conss
     getDtName (DataType n _) = n
