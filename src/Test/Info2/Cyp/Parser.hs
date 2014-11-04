@@ -21,6 +21,7 @@ import qualified Language.Haskell.Exts.Parser as P
 import qualified Language.Haskell.Exts.Syntax as Exts
 import Text.PrettyPrint (quotes, text, (<+>))
 
+import Test.Info2.Cyp.Env
 import Test.Info2.Cyp.Term
 import Test.Info2.Cyp.Types
 import Test.Info2.Cyp.Util
@@ -33,18 +34,18 @@ data ParseDeclTree
     | Goal String
     deriving Show
 
-data ParseLemma = ParseLemma String Prop ParseProof -- Proposition, Proof
+data ParseLemma = ParseLemma String RawProp ParseProof -- Proposition, Proof
 
 data ParseCase = ParseCase
-    { pcCons :: Term
-    , pcToShow :: Prop
-    , pcIndHyps :: [Named Prop]
+    { pcCons :: RawTerm
+    , pcToShow :: RawProp
+    , pcIndHyps :: [Named RawProp]
     , pcEqns :: ParseProof
     }
 
 data ParseProof
-    = ParseInduction String Term [ParseCase] -- DataTyp, Over, Cases
-    | ParseEquation (EqnSeqq Term)
+    = ParseInduction String RawTerm [ParseCase] -- DataTyp, Over, Cases
+    | ParseEquation (EqnSeqq RawTerm)
 
 
 trim :: String -> String
@@ -144,9 +145,9 @@ inductionProofParser =
         keywordQED
         return (ParseInduction datatype over cases)
 
-type PropParserMode = [String] -> String -> Err Term
+type PropParserMode = [String] -> String -> Err RawTerm
 
-propParser :: PropParserMode -> Parsec [Char] Env Prop
+propParser :: PropParserMode -> Parsec [Char] Env RawProp
 propParser mode = do
     s <- trim <$> toEol1
     env <- getState
@@ -154,7 +155,7 @@ propParser mode = do
             iparseProp (mode $ constants env) s
     toParsec show prop
 
-termParser :: PropParserMode -> Parsec [Char] Env Term
+termParser :: PropParserMode -> Parsec [Char] Env RawTerm
 termParser mode = do
     s <- trim <$> toEol1
     env <- getState
@@ -162,7 +163,7 @@ termParser mode = do
             iparseTerm (mode $ constants env) s
     toParsec show term
 
-namedPropParser :: PropParserMode -> Parsec [Char] Env String -> Parsec [Char] Env (String, Prop)
+namedPropParser :: PropParserMode -> Parsec [Char] Env String -> Parsec [Char] Env (String, RawProp)
 namedPropParser mode p = do
     name <- option "" p
     char ':'
@@ -172,7 +173,7 @@ namedPropParser mode p = do
 lemmaParser :: Parsec [Char] Env ParseLemma
 lemmaParser =
     do  keyword "Lemma"
-        (name, prop) <- namedPropParser defaultToSchematic idParser
+        (name, prop) <- namedPropParser defaultToFree idParser
         manySpacesOrComment
         prf <- inductionProofParser <|> equationProofParser
         manySpacesOrComment
@@ -217,7 +218,7 @@ byRuleParser = do
     lineSpaces
     return cs
 
-equationsParser :: Parsec [Char] Env (EqnSeqq Term)
+equationsParser :: Parsec [Char] Env (EqnSeqq RawTerm)
 equationsParser = do
     eq1 <- equations'
     eq2 <- optionMaybe (try equations')
@@ -267,7 +268,7 @@ caseParser = do
     indHypP = do
         string "IH"
         spaces
-        (name, prop) <- namedPropParser defaultToSchematic (many alphaNum)
+        (name, prop) <- namedPropParser defaultToFree (many alphaNum)
         return $ Named (if name == "" then "IH" else "IH " ++ name) prop
 
 
@@ -303,13 +304,13 @@ readDataType = sequence . mapMaybe parseDataType
     parseDaconArg _ _ = return TNRec
 
 readAxiom :: [String] -> [ParseDeclTree] -> Err [Named Prop]
-readAxiom consts = sequence . mapMaybe parseAxiom
+readAxiom consts = sequence . map (fmap $ fmap $ interpretProp declEnv) . mapMaybe parseAxiom
   where
     parseAxiom (Axiom n s) = Just (Named n <$> iparseProp (defaultToSchematic consts) s)
     parseAxiom _ = Nothing
 
 readGoal :: [String] -> [ParseDeclTree] -> Err [Prop]
-readGoal consts = sequence . mapMaybe parseGoal
+readGoal consts = sequence . map (fmap $ interpretProp declEnv)  . mapMaybe parseGoal
   where
     parseGoal (Goal s) = Just $ iparseProp (defaultToFree consts) s
     parseGoal _ = Nothing
@@ -329,7 +330,8 @@ readFunc :: [String] -> [ParseDeclTree] -> Err ([Named Prop], [String])
 readFunc syms pds = do
     rawDecls <- sequence . mapMaybe parseFunc $ pds
     let syms' = syms ++ map (\(sym, _, _) -> sym) rawDecls
-    props <- traverse (declToProp syms') rawDecls
+    props0 <- traverse (declToProp syms') rawDecls
+    let props = map (fmap $ generalizeExceptProp []) props0
     return (props, syms')
   where
 
@@ -337,10 +339,11 @@ readFunc syms pds = do
     declToProp consts (funSym, pats, rawRhs) = do
         tPat <- traverse translatePat pats
         rhs <- translateExp tv rawRhs
-        return $ Named ("def " ++ funSym) $ Prop (listComb (Const funSym) tPat) rhs
+        let prop = interpretProp declEnv $ Prop (listComb (Const funSym) tPat) rhs
+        return $ Named ("def " ++ funSym) prop
       where
         pvars = concatMap collectPVars pats
-        tv s | s `elem` pvars = return $ Schematic (s, 0)
+        tv s | s `elem` pvars = return $ Schematic s
              | s `elem` consts = return $ Const s
              | otherwise = errStr $ "Unbound variable '" ++ s ++ "' not allowed on rhs"
 

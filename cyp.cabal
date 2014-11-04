@@ -9,14 +9,17 @@ library
   ghc-options:       -W
   exposed-modules:   Test.Info2.Cyp
   other-modules:
-      Test.Info2.Cyp.Parser
+      Test.Info2.Cyp.Env
+    , Test.Info2.Cyp.Parser
     , Test.Info2.Cyp.Term
     , Test.Info2.Cyp.Trace
     , Test.Info2.Cyp.Types
     , Test.Info2.Cyp.Util
   build-depends:
       base ==4.*
+    , containers ==0.5.*
     , haskell-src-exts ==1.13.5.*
+    , mtl ==2.1.*
     , parsec ==3.1.*
     , pretty ==1.1.*
     , pretty-show ==1.6.*

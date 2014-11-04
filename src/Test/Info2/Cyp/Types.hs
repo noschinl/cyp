@@ -2,6 +2,7 @@ module Test.Info2.Cyp.Types where
 
 import Control.Applicative
 import Data.Foldable
+import qualified Data.Map.Strict as M
 import Data.Monoid
 import Data.Traversable
 
@@ -11,6 +12,7 @@ data Env = Env
     { datatypes :: [DataType]
     , axioms :: [Named Prop]
     , constants :: [String]
+    , fixes :: M.Map String Integer
     , goals :: [Prop]
     }
     deriving Show
@@ -40,8 +42,16 @@ instance Traversable EqnSeq where
     traverse f (Single x) = Single <$> f x
     traverse f (Step x y es) = Step <$> f x <*> pure y <*> traverse f es
 
+instance Foldable EqnSeqq where
+    foldMap f (EqnSeqq x Nothing) = foldMap f x
+    foldMap f (EqnSeqq x (Just y)) = foldMap f x `mappend` foldMap f y
+
 instance Functor EqnSeqq where
     fmap f (EqnSeqq x y) = EqnSeqq (fmap f x) (fmap f <$> y)
+
+instance Traversable EqnSeqq where
+    traverse f (EqnSeqq x Nothing) = EqnSeqq <$> (traverse f x) <*> pure Nothing
+    traverse f (EqnSeqq x (Just y)) = EqnSeqq <$> (traverse f x) <*> (Just <$> traverse f y)
 
 
 eqnSeqFromList :: a -> [(String,a)] -> EqnSeq a
@@ -54,8 +64,14 @@ eqnSeqEnds (Step a _ es) = (a, snd $ eqnSeqEnds es)
 
 {- Named operations --------------------------------------------------}
 
+instance Foldable Named where
+    foldMap f (Named _ x) = f x
+
 instance Functor Named where
     fmap f (Named n x) = Named n (f x)
+
+instance Traversable Named where
+    traverse f (Named n x) = Named n <$> f x
 
 namedVal :: Named a -> a
 namedVal (Named _ a) = a

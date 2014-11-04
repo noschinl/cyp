@@ -5,17 +5,22 @@ module Test.Info2.Cyp (
 
 import Control.Applicative ((<$>))
 import Control.Monad
+import Control.Monad.State
 import Data.Foldable (for_)
 import Data.List
+import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Traversable (traverse)
 import qualified Text.Parsec as Parsec
-import Text.PrettyPrint (comma, fsep, punctuate, quotes, text, vcat, (<>), (<+>), ($+$))
+import Text.PrettyPrint (Doc, comma, fsep, punctuate, quotes, text, vcat, (<>), (<+>), ($+$))
 
+import Test.Info2.Cyp.Env
 import Test.Info2.Cyp.Parser
 import Test.Info2.Cyp.Term
 import Test.Info2.Cyp.Types
 import Test.Info2.Cyp.Util
+
+import Test.Info2.Cyp.Trace
 
 {- Default constants -------------------------------------------------}
 
@@ -51,7 +56,7 @@ processMasterFile path content = errCtxtStr "Parsing background theory" $ do
     axs <- readAxiom consts mResult
     gls <- readGoal consts mResult
     return $ Env { datatypes = dts, axioms = fundefs ++ axs,
-        constants = nub $ defConsts ++ consts, goals = gls }
+        constants = nub $ defConsts ++ consts, fixes = M.empty, goals = gls }
 
 processProofFile :: Env -> FilePath -> String -> Err [ParseLemma]
 processProofFile env path content = errCtxtStr "Parsing proof" $
@@ -60,21 +65,31 @@ processProofFile env path content = errCtxtStr "Parsing proof" $
 checkProofs :: Env -> [ParseLemma] -> Err [Named Prop]
 checkProofs env []  = Right $ axioms env
 checkProofs env (l@(ParseLemma name prop _) : ls) = do
-    errCtxt (text "Lemma:" <+> unparseProp prop) $
+    proved <- errCtxt (text "Lemma:" <+> unparseRawProp prop) $
         checkProof env l
-    checkProofs (env { axioms = Named name prop : axioms env }) ls
+    checkProofs (env { axioms = Named name proved : axioms env }) ls
 
-checkProof :: Env -> ParseLemma -> Err ()
-checkProof env (ParseLemma _ prop (ParseEquation eqns)) = errCtxtStr "Equational proof" $ do
-    validEquationProof (axioms env) eqns prop
-    return ()
-checkProof env (ParseLemma _ prop (ParseInduction dtRaw overRaw casesRaw)) = errCtxt ctxtMsg $ do
-    dt <- validateDatatype dtRaw
-    over <- validateOver overRaw
-    validateCases dt over casesRaw
+
+
+checkProof :: Env -> ParseLemma -> Err Prop
+checkProof env (ParseLemma _ rprop (ParseEquation reqns)) = errCtxtStr "Equational proof" $ do
+    let ((prop, eqns), env') = flip runState env $ do
+          prop <- state (declareProp rprop)
+          eqns <- traverse (state . declareTerm) reqns
+          return (prop, eqns)
+    validEquationProof (axioms env') eqns prop
+    return prop
+checkProof env (ParseLemma _ rprop (ParseInduction dtRaw overRaw casesRaw)) = errCtxt ctxtMsg $ do
+    (prop, _) <- flip runStateT env $ do
+        prop <- state (declareProp rprop)
+        dt <- lift (validateDatatype dtRaw)
+        over <- validateOver overRaw
+        lift $ validateCases prop dt over casesRaw
+        return prop
+    return (generalizeExceptProp [] prop) -- XXX fix!
   where
     ctxtMsg = text "Induction over variable"
-        <+> quotes (unparseTerm overRaw) <+> text "of type" <+> quotes (text dtRaw)
+        <+> quotes (unparseRawTerm overRaw) <+> text "of type" <+> quotes (text dtRaw)
 
     validateDatatype name = case find (\dt -> getDtName dt == name) (datatypes env) of
         Nothing -> err $ fsep $
@@ -83,43 +98,73 @@ checkProof env (ParseLemma _ prop (ParseInduction dtRaw overRaw casesRaw)) = err
             ++ punctuate comma (map (quotes . text . getDtName) $ datatypes env)
         Just dt -> Right dt
 
-    validateOver (Free v) = return v
-    validateOver t = err $ text "Term" <+> quotes (unparseTerm t)
-            <+> text "is not a valid induction variable"
+    validateOver t = do
+        t' <- state (declareTerm t)
+        case t' of
+            Free v -> return v
+            _ -> lift $ err $ text "Term" <+> quotes (unparseTerm t')
+                <+> text "is not a valid induction variable"
 
-    validateCases dt over cases = do
-        caseNames <- traverse (validateCase dt over) cases
+    validateCases :: Prop -> DataType -> IdxName -> [ParseCase] -> Err ()
+    validateCases prop dt over cases = do
+        caseNames <- traverse (validateCase prop dt over) cases
         case missingCase caseNames of
             Nothing -> return ()
             Just (name, _) -> errStr $ "Missing case '" ++ name ++ "'"
       where
         missingCase caseNames = find (\(name, _) -> name `notElem` caseNames) (getDtConss dt)
 
-    validateCase :: DataType -> IdxName -> ParseCase -> Err String
-    validateCase dt over pc = errCtxt (text "Case" <+> quotes (unparseTerm $ pcCons pc)) $ do
-        (consName, consArgNs) <- lookupCons (pcCons pc) dt
-        let argsNames = map snd consArgNs
+    validateCase :: Prop -> DataType -> IdxName -> ParseCase -> Err String
+    validateCase prop dt over pc = errCtxt (text "Case" <+> quotes (unparseRawTerm $ pcCons pc)) $ do
+        (consName, _) <- flip runStateT env $ do
+            caseT <- state (variantFixesTerm $ pcCons pc)
+            (consName, consArgNs) <- lift $ lookupCons caseT dt
+            let recArgNames = map snd . filter (\x -> fst x == TRec) $ consArgNs
 
-        let subgoal = substProp prop [(over, pcCons pc)]
-        let toShow = generalizeExceptProp argsNames $ pcToShow pc
-        when (subgoal /= toShow) $ err
-             $ text "'To show' does not match subgoal:"
-             `indent` (text "To show: " <+> unparseProp toShow)
+            let subgoal = substFreeProp prop [(over, caseT)]
+            toShow <- state (declareProp $ pcToShow pc)
+            when (subgoal /= toShow) $ lift . err
+                 $ text "'To show' does not match subgoal:"
+                 `indent` (
+                    text "To show:" <+> unparseProp toShow
+                    $+$ debug (text "Subgoal:" <+> unparseProp subgoal))
 
-        let indHyps = map (substProp prop . instOver) . filter (\x -> fst x == TRec) $ consArgNs
+            userHyps <- checkPcHyps prop over recArgNames $ pcIndHyps pc
 
-        userHyps <- checkPcHyps argsNames indHyps $ pcIndHyps pc
+            let ParseEquation eqns = pcEqns pc -- XXX
+            eqns' <- traverse (state . declareTerm) eqns
 
-        let ParseEquation eqns = pcEqns pc -- XXX
-        let eqns' = generalizeExcept argsNames <$> eqns
-
-        eqnProp <- validEquationProof (userHyps ++ axioms env) eqns' subgoal
-        when (eqnProp /= toShow) $
-            err $ (text "Result of equational proof" `indent` (unparseProp eqnProp))
-                $+$ (text "does not match stated goal:" `indent` (unparseProp toShow))
+            eqnProp <- lift $ validEquationProof (userHyps ++ axioms env) eqns' subgoal
+            when (eqnProp /= toShow) $ lift $
+                err $ (text "Result of equational proof" `indent` (unparseProp eqnProp))
+                    $+$ (text "does not match stated goal:" `indent` (unparseProp toShow))
+            return consName
         return consName
-      where
-        instOver (_, n) = [(over, Free n)]
+
+
+--        let (caseT, env') = variantFixesTerm env $ pcCons pc
+--        (consName, consArgNs) <- lookupCons caseT dt
+--        let argsNames = map snd consArgNs
+--
+--        let (prop', env'') = declareProp env' prop
+--        let subgoal = substProp prop [(over, caseT)]
+--        let toShow = generalizeExceptProp argsNames $ pcToShow pc
+--        when (subgoal /= toShow) $ err
+--             $ text "'To show' does not match subgoal:"
+--             `indent` (text "To show: " <+> unparseProp toShow)
+--
+--        let indHyps = map (substProp prop . instOver) . filter (\x -> fst x == TRec) $ consArgNs
+--
+--        userHyps <- checkPcHyps argsNames indHyps $ pcIndHyps pc
+--
+--        let ParseEquation eqns = pcEqns pc -- XXX
+--        let eqns' = generalizeExcept argsNames <$> eqns
+--
+--        eqnProp <- validEquationProof (userHyps ++ axioms env) eqns' subgoal
+--        when (eqnProp /= toShow) $
+--            err $ (text "Result of equational proof" `indent` (unparseProp eqnProp))
+--                $+$ (text "does not match stated goal:" `indent` (unparseProp toShow))
+--        return consName
 
     lookupCons t (DataType _ conss) = errCtxt invCaseMsg $ do
         (consName, consArgs) <- findCons cons
@@ -143,14 +188,19 @@ checkProof env (ParseLemma _ prop (ParseInduction dtRaw overRaw casesRaw)) = err
 
         invCaseMsg = text "Invalid case" <+> quotes (unparseTerm t) <> comma
 
-    checkPcHyps :: [IdxName] -> [Prop] -> [Named Prop] -> Err [Named Prop]
-    checkPcHyps instVars indHyps pcHyps = do
-        let inst = map (\v -> (v, Free v)) instVars
-        let userHyps = map (fmap (flip substProp inst)) $ pcHyps
-        for_ userHyps $ \(Named name prop) -> case prop `elem` indHyps of
+    -- XXX rename
+    checkPcHyps :: Prop -> IdxName -> [IdxName] -> [Named RawProp] -> StateT Env (Either Doc) [Named Prop]
+    checkPcHyps prop over recVars rpcHyps = do
+        pcHyps <- traverse (traverse (state . declareProp)) rpcHyps
+        let indHyps = map (substFreeProp prop . instOver) recVars
+        lift $ for_ pcHyps $ \(Named name prop) -> case prop `elem` indHyps of
             True -> return ()
-            False -> err $ text $ "Induction hypothesis " ++ name ++ " is not valid"
-        return userHyps
+            False -> err $
+                text ("Induction hypothesis " ++ name ++ " is not valid")
+                `indent` (debug (unparseProp prop))
+        return $ map (fmap $ generalizeExceptProp recVars) pcHyps
+      where
+        instOver n = [(over, Free n)]
 
     getDtConss (DataType _ conss) = conss
     getDtName (DataType n _) = n
@@ -161,8 +211,9 @@ validEqnSeq rules (Step t1 rule es)
     | rewritesToWith rule rules t1 t2 = do
         (_, tLast) <- validEqnSeq rules es
         return (t1, tLast)
-    | otherwise = errCtxtStr ("Invalid proof step" ++ noRuleMsg) $
-        err $ unparseTerm t1 $+$ text ("(by " ++ rule ++ ") " ++ symPropEq) <+> unparseTerm t2
+    | otherwise = errCtxtStr ("Invalid proof step" ++ noRuleMsg) $ err $
+        unparseTerm t1 $+$ text ("(by " ++ rule ++ ") " ++ symPropEq) <+> unparseTerm t2
+        $+$ debug (text rule <> text ":" <+> vcat (map (unparseProp . namedVal) $ filter (\x -> namedName x == rule) rules))
   where
     (t2, _) = eqnSeqEnds es
     noRuleMsg
