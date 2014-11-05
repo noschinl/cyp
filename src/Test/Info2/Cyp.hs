@@ -204,18 +204,10 @@ validEquationProof :: [Named Prop] -> EqnSeqq Term -> Prop -> Err Prop
 validEquationProof rules eqns goal = do
     (l,r) <- validEqnSeqq rules eqns
     let prop = Prop l r
-    case isFixedProp prop $ goal of
+    case prop == goal of
         False -> err $ text "Proved proposition does not match goal:"
                      `indent` (unparseProp prop)
         True -> return prop
-
--- XXX Think about schemFrees again ...
-isFixedProp :: Prop -> Prop -> Bool
-isFixedProp fixedProp schemProp = isJust $ do
-    inst <- map snd <$> matchProp fixedProp schemProp []
-    --let (Prop schemL schemR) = schemProp
-    --let schemFrees = collectFrees schemL $ collectFrees schemR $ []
-    guard $ all (\x -> isFree x || isSchematic x) inst && nub inst == inst -- && null schemFrees
 
 rewriteTop :: Term -> Prop -> Maybe Term
 rewriteTop t (Prop lhs rhs) = fmap (subst rhs) $ match t lhs []
