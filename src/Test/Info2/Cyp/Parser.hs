@@ -69,20 +69,15 @@ idParser = idP <?> "Id"
         lineSpaces
         return (c:cs)
 
+
 commentParser :: Parsec [Char] u ()
-commentParser =
-    do  _ <- string "--"
+commentParser = p <?> "comment"
+  where
+    p = do
+        _ <- string "--"
         _ <- many (noneOf "\r\n")
         eol <|> eof
         return ()
-longcommentParser :: Parsec [Char] u ()
-longcommentParser =
-    do  _ <- string "{-"
-        _ <- manyTill anyChar (try (string "-}"))
-        return ()
-
-commentParsers :: Parsec [Char] u ()
-commentParsers = commentParser <|> longcommentParser <?> "comment"
 
 cthyParser :: Parsec [Char] () [ParseDeclTree]
 cthyParser =
@@ -273,7 +268,7 @@ caseParser = do
 
 
 manySpacesOrComment :: Parsec [Char] u ()
-manySpacesOrComment = skipMany $ (space >> return ()) <|> commentParsers
+manySpacesOrComment = skipMany $ (space >> return ()) <|> commentParser
 
 
 readDataType :: [ParseDeclTree] -> Err [DataType]
