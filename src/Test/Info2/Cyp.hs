@@ -130,13 +130,9 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
 
             userHyps <- checkPcHyps prop over recArgNames $ pcIndHyps pc
 
-            let ParseEquation eqns = pcEqns pc -- XXX
-            eqns' <- traverse (state . declareTerm) eqns
+            modify (\env -> env { axioms = userHyps ++ axioms env })
 
-            eqnProp <- lift $ validEquationProof (userHyps ++ axioms env) eqns' subgoal
-            when (eqnProp /= toShow) $ lift $
-                err $ (text "Result of equational proof" `indent` (unparseProp eqnProp))
-                    $+$ (text "does not match stated goal:" `indent` (unparseProp toShow))
+            gets (checkProof subgoal (pcEqns pc))
             return consName
         return consName
 
