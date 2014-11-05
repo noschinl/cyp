@@ -3,7 +3,6 @@ module Test.Info2.Cyp (
 , proofFile
 ) where
 
-import Control.Applicative ((<$>))
 import Control.Monad
 import Control.Monad.State
 import Data.Foldable (for_)
@@ -75,9 +74,12 @@ checkLemma (ParseLemma name rprop proof) env = errCtxt (text "Lemma" <+> text na
 
 checkProof :: Prop -> ParseProof -> Env -> Err Prop
 checkProof prop (ParseEquation reqns) env = errCtxtStr "Equational proof" $ do
-    let (eqns, env') = flip runState env $ do
-          traverse (state . declareTerm) reqns
-    validEquationProof (axioms env') eqns prop
+    let (eqns, env') = runState (traverse (state . declareTerm) reqns) env
+    proved <- validEqnSeqq (axioms env') eqns
+    case prop == proved of
+        False -> err $ text "Proved proposition does not match goal:"
+                     `indent` (unparseProp proved)
+        True -> return proved
     return prop
 checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ do
     flip runStateT env $ do
@@ -175,12 +177,12 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
     getDtConss (DataType _ conss) = conss
     getDtName (DataType n _) = n
 
-validEqnSeq :: [Named Prop] -> EqnSeq Term -> Err (Term, Term)
-validEqnSeq _ (Single t) = return (t, t)
+validEqnSeq :: [Named Prop] -> EqnSeq Term -> Err Prop
+validEqnSeq _ (Single t) = return (Prop t t)
 validEqnSeq rules (Step t1 rule es)
     | rewritesToWith rule rules t1 t2 = do
-        (_, tLast) <- validEqnSeq rules es
-        return (t1, tLast)
+        Prop _ tLast <- validEqnSeq rules es
+        return (Prop t1 tLast)
     | otherwise = errCtxtStr ("Invalid proof step" ++ noRuleMsg) $ err $
         unparseTerm t1 $+$ text ("(by " ++ rule ++ ") " ++ symPropEq) <+> unparseTerm t2
         $+$ debug (text rule <> text ":" <+> vcat (map (unparseProp . namedVal) $ filter (\x -> namedName x == rule) rules))
@@ -190,24 +192,15 @@ validEqnSeq rules (Step t1 rule es)
         | any (\x -> namedName x == rule) rules = ""
         | otherwise = " (no rules with name \"" ++ rule ++ "\")"
 
-validEqnSeqq :: [Named Prop] -> EqnSeqq Term -> Err (Term, Term)
+validEqnSeqq :: [Named Prop] -> EqnSeqq Term -> Err Prop
 validEqnSeqq rules (EqnSeqq es1 Nothing) = validEqnSeq rules es1
 validEqnSeqq rules (EqnSeqq es1 (Just es2)) = do
-    (th1, tl1) <- validEqnSeq rules es1
-    (th2, tl2) <- validEqnSeq rules es2
+    Prop th1 tl1 <- validEqnSeq rules es1
+    Prop th2 tl2 <- validEqnSeq rules es2
     case tl1 == tl2 of
-        True -> return (th1, th2)
+        True -> return (Prop th1 th2)
         False -> errCtxtStr "Two equation chains don't fit together:" $
             err $ unparseTerm tl1 $+$ text symPropEq $+$ unparseTerm tl2
-
-validEquationProof :: [Named Prop] -> EqnSeqq Term -> Prop -> Err Prop
-validEquationProof rules eqns goal = do
-    (l,r) <- validEqnSeqq rules eqns
-    let prop = Prop l r
-    case prop == goal of
-        False -> err $ text "Proved proposition does not match goal:"
-                     `indent` (unparseProp prop)
-        True -> return prop
 
 rewriteTop :: Term -> Prop -> Maybe Term
 rewriteTop t (Prop lhs rhs) = fmap (subst rhs) $ match t lhs []
