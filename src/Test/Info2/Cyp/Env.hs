@@ -1,4 +1,15 @@
-module Test.Info2.Cyp.Env where
+module Test.Info2.Cyp.Env
+    ( declEnv
+    , generalizeEnv
+    , generalizeEnvProp
+    , interpretProp
+    , interpretTerm
+    , declareTerm
+    , declareProp
+    , variantFixes
+    , variantFixesTerm
+    )
+where
 
 import qualified Data.Map.Strict as M
 
@@ -37,13 +48,6 @@ variantFixesTerm :: RawTerm -> Env -> (Term, Env)
 variantFixesTerm rt env = (interpretTerm env' rt, env')
   where
     (_, env') = variantFixes (collectFrees rt []) env
-
-declareName :: String -> Env -> (IdxName, Env)
-declareName v env = ((v, M.findWithDefault 0 v fixes'), env')
-  where
-    ins free = M.insertWith (\_ n -> n) free 0
-    fixes' = ins v (fixes env)
-    env' = env { fixes = fixes' }
 
 declareTerm :: RawTerm -> Env -> (Term, Env)
 declareTerm rt env = (interpretTerm env' rt, env')
