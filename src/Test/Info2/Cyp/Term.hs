@@ -7,6 +7,7 @@ module Test.Info2.Cyp.Term
     , Prop
     , RawProp
     , collectFrees
+    , defaultConsts
     , defaultToFree
     , defaultToSchematic
     , generalizeExcept
@@ -172,11 +173,17 @@ generalizeExceptProp vs = propMap (generalizeExcept vs)
 
 {- Parsing ----------------------------------------------------------}
 
-iparseTermRaw :: P.ParseMode -> (String -> Err (AbsTerm a)) -> String -> Err (AbsTerm a)
-iparseTermRaw mode f s = errCtxt (text "Parsing term" <+> quotes (text s)) $
+defaultConsts :: [String]
+defaultConsts = symPropEq : map (\(Fixity _ _ qName) -> translateQName qName) baseFixities
+
+iparseTermRaw :: (String -> Err (AbsTerm a)) -> String -> Err (AbsTerm a)
+iparseTermRaw f s = errCtxt (text "Parsing term" <+> quotes (text s)) $
     case P.parseExpWithMode mode s of
-        P.ParseOk p -> translateExp f p
+        P.ParseOk p -> translateExp (withDefConsts f) p
         x@(P.ParseFailed _ _) -> errStr $ show x
+  where
+    mode = P.defaultParseMode { P.fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol symPropEq) : baseFixities }
+    withDefConsts f x = if x `elem` defaultConsts then return (Const x) else f x
 
 defaultToFree :: [String] -> String -> Err RawTerm
 defaultToFree consts x = return $ if x `elem` consts then Const x else Free x
@@ -194,24 +201,20 @@ checkHasPropEq term = when (hasPropEq term) $
 
 iparseTerm :: (String -> Err (AbsTerm a))-> String -> Err (AbsTerm a)
 iparseTerm f s = do
-    term <- iparseTermRaw mode f s
+    term <- iparseTermRaw f s
     checkHasPropEq term
     return term
-  where mode = P.defaultParseMode { P.fixities = Just baseFixities }
 
 
 iparseProp :: (String -> Err (AbsTerm a)) -> String -> Err (AbsProp a)
 iparseProp f s = do
-    term <- iparseTermRaw mode f' s
+    term <- iparseTermRaw f s
     (lhs, rhs) <- case term of
         Application (Application (Const c) lhs) rhs | c == symPropEq -> Right (lhs, rhs)
         _ -> errStr $ "Term '" ++ s ++ "' is not a proposition"
     checkHasPropEq lhs
     checkHasPropEq rhs
     return $ Prop lhs rhs
-  where
-    f' x = if x == symPropEq then return $ Const x else f x
-    mode = P.defaultParseMode { P.fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol symPropEq) : baseFixities }
 
 
 {- Transform Exp to Term ---------------------------------------------}

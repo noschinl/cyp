@@ -19,11 +19,6 @@ import Test.Info2.Cyp.Term
 import Test.Info2.Cyp.Types
 import Test.Info2.Cyp.Util
 
-{- Default constants -------------------------------------------------}
-
-defConsts :: [String]
-defConsts = [symPropEq]
-
 {- Main -------------------------------------------------------------}
 
 proofFile :: FilePath -> FilePath -> IO (Err ())
@@ -48,12 +43,12 @@ processMasterFile :: FilePath -> String -> Err Env
 processMasterFile path content = errCtxtStr "Parsing background theory" $ do
     mResult <- eitherToErr $ Parsec.parse cthyParser path content
     dts <- readDataType mResult
-    syms <- readSym mResult
+    syms <- fmap (defaultConsts ++) $ readSym mResult
     (fundefs, consts) <- readFunc syms mResult
     axs <- readAxiom consts mResult
     gls <- readGoal consts mResult
     return $ Env { datatypes = dts, axioms = fundefs ++ axs,
-        constants = nub $ defConsts ++ consts, fixes = M.empty, goals = gls }
+        constants = nub $ consts, fixes = M.empty, goals = gls }
 
 processProofFile :: Env -> FilePath -> String -> Err [ParseLemma]
 processProofFile env path content = errCtxtStr "Parsing proof" $

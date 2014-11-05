@@ -1,7 +1,5 @@
 data List a = [] | a : (List a)
 
-declare_sym (+)
-
 length [] = 0
 length (x:xs) = 1 + length xs
 
