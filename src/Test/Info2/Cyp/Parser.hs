@@ -298,9 +298,11 @@ readDataType = sequence . mapMaybe parseDataType
     parseDaconArg _ _ = return TNRec
 
 readAxiom :: [String] -> [ParseDeclTree] -> Err [Named Prop]
-readAxiom consts = sequence . map (fmap $ fmap $ interpretProp declEnv) . mapMaybe parseAxiom
+readAxiom consts = sequence . mapMaybe parseAxiom
   where
-    parseAxiom (Axiom n s) = Just (Named n <$> iparseProp (defaultToSchematic consts) s)
+    parseAxiom (Axiom n s) = Just $ do
+        prop <- iparseProp (defaultToFree consts) s
+        return $ Named n $ interpretProp declEnv $ generalizeExceptProp [] $ prop
     parseAxiom _ = Nothing
 
 readGoal :: [String] -> [ParseDeclTree] -> Err [Prop]

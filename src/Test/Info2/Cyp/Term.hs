@@ -9,7 +9,6 @@ module Test.Info2.Cyp.Term
     , collectFrees
     , defaultConsts
     , defaultToFree
-    , defaultToSchematic
     , generalizeExcept
     , generalizeExceptProp
     , iparseTerm
@@ -187,9 +186,6 @@ iparseTermRaw f s = errCtxt (text "Parsing term" <+> quotes (text s)) $
 
 defaultToFree :: [String] -> String -> Err RawTerm
 defaultToFree consts x = return $ if x `elem` consts then Const x else Free x
-
-defaultToSchematic :: [String] -> String -> Err RawTerm
-defaultToSchematic consts x = return $ if x `elem` consts then Const x else Schematic x
 
 checkHasPropEq :: AbsTerm a -> Err ()
 checkHasPropEq term = when (hasPropEq term) $
