@@ -31,11 +31,6 @@ interpretTerm env rt = fmap f rt
 interpretProp :: Env -> RawProp -> Prop
 interpretProp env = propMap (interpretTerm env)
 
--- envAddFixes :: Env -> [String] -> Err Env
--- envAddFixes env xs
---     | any (`elem` frees env) xs = errStr "Variable already in use" -- XXX: show which variable!
---     | otherwise = return $ env { frees = xs ++ frees env }
-
 variantFixes :: [String] -> Env ->  ([IdxName], Env)
 variantFixes xs env = (xs', env')
   where
