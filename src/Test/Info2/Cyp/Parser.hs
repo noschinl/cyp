@@ -74,7 +74,7 @@ commentParser :: Parsec [Char] u ()
 commentParser = p <?> "comment"
   where
     p = do
-        _ <- string "--"
+        _ <- try (string "--")
         _ <- many (noneOf "\r\n")
         eol <|> eof
         return ()
@@ -115,10 +115,9 @@ symParser :: Parsec [Char] () ParseDeclTree
 symParser = keywordToEolParser "declare_sym" SymDecl
 
 funParser :: Parsec [Char] () ParseDeclTree
-funParser =
-    do  c <- noneOf "\r\n"
-        cs <- toEol
-        return (FunDef $ c:cs)
+funParser = do
+    cs <- toEol1 <?> "Function definition"
+    return (FunDef cs)
 
 equationProofParser :: Parsec [Char] Env ParseProof
 equationProofParser = do
@@ -196,7 +195,7 @@ keywordQED :: Parsec [Char] u ()
 keywordQED = keyword "QED"
 
 toEol :: Parsec [Char] u String
-toEol = manyTill anyChar (eof <|> try eol <|> try commentParser)
+toEol = manyTill anyChar (eof <|> try eol <|> commentParser)
 
 toEol1 :: Parsec [Char] u String
 toEol1 = do
