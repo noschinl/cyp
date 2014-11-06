@@ -19,7 +19,6 @@ import Test.Info2.Cyp.Term
 import Test.Info2.Cyp.Types
 import Test.Info2.Cyp.Util
 
-
 proofFile :: FilePath -> FilePath -> IO (Err ())
 proofFile masterFile studentFile = do
     mContent <- readFile masterFile
@@ -79,7 +78,8 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
     flip runStateT env $ do
         dt <- lift (validateDatatype dtRaw)
         over <- validateOver overRaw
-        lift $ validateCases prop dt over casesRaw
+        env <- get
+        lift $ validateCases prop dt over casesRaw env
         return prop
     return prop
   where
@@ -100,17 +100,15 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
             _ -> lift $ err $ text "Term" <+> quotes (unparseTerm t')
                 <+> text "is not a valid induction variable"
 
-    validateCases :: Prop -> DataType -> IdxName -> [ParseCase] -> Err ()
-    validateCases prop dt over cases = do
-        caseNames <- traverse (validateCase prop dt over) cases
+    validateCases prop dt over cases env = do
+        caseNames <- traverse (validateCase prop dt over env) cases
         case missingCase caseNames of
             Nothing -> return ()
             Just (name, _) -> errStr $ "Missing case '" ++ name ++ "'"
       where
         missingCase caseNames = find (\(name, _) -> name `notElem` caseNames) (getDtConss dt)
 
-    validateCase :: Prop -> DataType -> IdxName -> ParseCase -> Err String
-    validateCase prop dt over pc = errCtxt (text "Case" <+> quotes (unparseRawTerm $ pcCons pc)) $ do
+    validateCase prop dt over env pc = errCtxt (text "Case" <+> quotes (unparseRawTerm $ pcCons pc)) $ do
         (consName, _) <- flip runStateT env $ do
             caseT <- state (variantFixesTerm $ pcCons pc)
             (consName, consArgNs) <- lift $ lookupCons caseT dt
@@ -127,8 +125,8 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
             userHyps <- checkPcHyps prop over recArgNames $ pcIndHyps pc
 
             modify (\env -> env { axioms = userHyps ++ axioms env })
-
-            gets (checkProof subgoal (pcProof pc))
+            env <- get
+            lift $ checkProof subgoal (pcProof pc) env
             return consName
         return consName
 
