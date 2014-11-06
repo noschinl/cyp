@@ -18,7 +18,7 @@ data Env = Env
     deriving Show
 
 data DataType = DataType String [(String, [TConsArg])] -- name cases
-    deriving (Show)
+    deriving Show
 
 data Named a = Named String a
     deriving Show
@@ -27,8 +27,8 @@ data TConsArg = TNRec | TRec deriving (Show,Eq)
 
 {- Equation sequences ------------------------------------------------}
 
-data EqnSeq a = Single a | Step a String (EqnSeq a)
-data EqnSeqq a = EqnSeqq (EqnSeq a) (Maybe (EqnSeq a))
+data EqnSeq a = Single a | Step a String (EqnSeq a) deriving Show
+data EqnSeqq a = EqnSeqq (EqnSeq a) (Maybe (EqnSeq a)) deriving Show
 
 instance Foldable EqnSeq where
     foldMap f (Single x) = f x

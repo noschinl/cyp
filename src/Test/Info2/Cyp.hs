@@ -69,19 +69,16 @@ checkProof :: Prop -> ParseProof -> Env -> Err Prop
 checkProof prop (ParseEquation reqns) env = errCtxtStr "Equational proof" $ do
     let (eqns, env') = runState (traverse (state . declareTerm) reqns) env
     proved <- validEqnSeqq (axioms env') eqns
-    case prop == proved of
-        False -> err $ text "Proved proposition does not match goal:"
-                     `indent` (unparseProp proved)
-        True -> return proved
-    return prop
+    when (prop /= proved) $ err $
+        text "Proved proposition does not match goal:" `indent` unparseProp proved
+    return proved
 checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ do
-    flip runStateT env $ do
+    flip evalStateT env $ do
         dt <- lift (validateDatatype dtRaw)
         over <- validateOver overRaw
         env <- get
         lift $ validateCases prop dt over casesRaw env
         return prop
-    return prop
   where
     ctxtMsg = text "Induction over variable"
         <+> quotes (unparseRawTerm overRaw) <+> text "of type" <+> quotes (text dtRaw)
@@ -153,7 +150,7 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
         invCaseMsg = text "Invalid case" <+> quotes (unparseTerm t) <> comma
 
     -- XXX rename
-    checkPcHyps :: Prop -> IdxName -> [IdxName] -> [Named RawProp] -> StateT Env (Either Doc) [Named Prop]
+    checkPcHyps :: Prop -> IdxName -> [IdxName] -> [Named RawProp] -> StateT Env Err [Named Prop]
     checkPcHyps prop over recVars rpcHyps = do
         pcHyps <- traverse (traverse (state . declareProp)) rpcHyps
         let indHyps = map (substFreeProp prop . instOver) recVars
