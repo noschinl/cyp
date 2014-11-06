@@ -19,7 +19,6 @@ import Test.Info2.Cyp.Term
 import Test.Info2.Cyp.Types
 import Test.Info2.Cyp.Util
 
-{- Main -------------------------------------------------------------}
 
 proofFile :: FilePath -> FilePath -> IO (Err ())
 proofFile masterFile studentFile = do

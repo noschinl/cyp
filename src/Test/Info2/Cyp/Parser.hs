@@ -169,9 +169,14 @@ lemmaParser =
     do  keyword "Lemma"
         (name, prop) <- namedPropParser defaultToFree idParser
         manySpacesOrComment
-        prf <- inductionProofParser <|> equationProofParser
+        prf <- proofParser
         manySpacesOrComment
         return $ ParseLemma name prop prf
+
+proofParser :: Parsec [Char] Env ParseProof
+proofParser =
+  inductionProofParser <|>
+  equationProofParser
 
 cprfParser ::  Parsec [Char] Env [ParseLemma]
 cprfParser =
@@ -241,13 +246,13 @@ caseParser = do
     manySpacesOrComment
     indHyps <- indHypsP
     manySpacesOrComment
-    eqnPrf <- equationProofParser
+    proof <- proofParser
     manySpacesOrComment
     return $ ParseCase
         { pcCons = t
         , pcToShow = toShow
         , pcIndHyps = indHyps
-        , pcEqns = eqnPrf
+        , pcEqns = proof
         }
   where
     toShowP = do
