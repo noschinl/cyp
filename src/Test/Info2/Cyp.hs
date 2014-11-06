@@ -11,7 +11,7 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Traversable (traverse)
 import qualified Text.Parsec as Parsec
-import Text.PrettyPrint (Doc, colon, comma, fsep, punctuate, quotes, text, vcat, (<>), (<+>), ($+$))
+import Text.PrettyPrint (colon, comma, fsep, punctuate, quotes, text, vcat, (<>), (<+>), ($+$))
 
 import Test.Info2.Cyp.Env
 import Test.Info2.Cyp.Parser
@@ -61,7 +61,7 @@ checkProofs env (l : ls) = do
 checkLemma :: ParseLemma -> Env -> Err (Prop, Env)
 checkLemma (ParseLemma name rprop proof) env = errCtxt (text "Lemma" <+> text name <> colon <+> unparseRawProp rprop) $ do
     let (prop, env') = declareProp rprop env
-    checkProof prop proof env'
+    Prop _ _ <- checkProof prop proof env'
     let proved = generalizeEnvProp env prop
     return (proved, env { axioms = Named name proved : axioms env })
 
@@ -150,7 +150,7 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
 
             modify (\env -> env { axioms = userHyps ++ axioms env })
             env <- get
-            lift $ checkProof subgoal (pcProof pc) env
+            Prop _ _ <- lift $ checkProof subgoal (pcProof pc) env
             return consName
         return consName
 
