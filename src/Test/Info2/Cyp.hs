@@ -72,6 +72,33 @@ checkProof prop (ParseEquation reqns) env = errCtxtStr "Equational proof" $ do
     when (prop /= proved) $ err $
         text "Proved proposition does not match goal:" `indent` unparseProp proved
     return proved
+checkProof prop (ParseExt withRaw toShowRaw proof) env = errCtxt ctxtMsg $
+    flip evalStateT env $ do
+        with <- validateWith withRaw
+        prop' <- validateShow with toShowRaw
+        env <- get
+        lift $ checkProof prop' proof env
+  where
+    ctxtMsg = text "Extensionality with" <+> quotes (unparseRawTerm withRaw)
+
+    validateWith t = do -- lazy code duplication
+        t' <- state (declareTerm t)
+        case t' of
+            Free v -> return v
+            _ -> lift $ err $ text "Term" <+> quotes (unparseTerm t')
+                <+> text "is not a valid variable for extensionality"
+
+    validateShow v raw = do
+        prop' <- state (declareProp raw)
+        let Prop lhs rhs = prop
+        let Prop lhs' rhs' = prop'
+        let lhsE = Application lhs (Free v)
+        let rhsE = Application rhs (Free v)
+        when (lhsE /= lhs') $ bail "Invalid left-hand side of proposition, expected:" lhsE
+        when (rhsE /= rhs') $ bail "Invalid right-hand side of proposition, expected:" rhsE
+        return prop'
+      where
+        bail msg t = lift $ err $ text msg <+> quotes (unparseTerm t)
 checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ do
     flip evalStateT env $ do
         dt <- lift (validateDatatype dtRaw)
