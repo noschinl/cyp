@@ -128,7 +128,7 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
 
             modify (\env -> env { axioms = userHyps ++ axioms env })
 
-            gets (checkProof subgoal (pcEqns pc))
+            gets (checkProof subgoal (pcProof pc))
             return consName
         return consName
 

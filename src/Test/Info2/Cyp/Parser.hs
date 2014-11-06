@@ -40,7 +40,7 @@ data ParseCase = ParseCase
     { pcCons :: RawTerm
     , pcToShow :: RawProp
     , pcIndHyps :: [Named RawProp]
-    , pcEqns :: ParseProof
+    , pcProof :: ParseProof
     }
 
 data ParseProof
@@ -252,7 +252,7 @@ caseParser = do
         { pcCons = t
         , pcToShow = toShow
         , pcIndHyps = indHyps
-        , pcEqns = proof
+        , pcProof = proof
         }
   where
     toShowP = do
