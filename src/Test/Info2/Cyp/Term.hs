@@ -284,12 +284,6 @@ instance Ord Prio where
     compare AtomPrio AppPrio = GT
     compare AtomPrio AtomPrio = EQ
 
-unparseFixities :: [CypFixity]
-unparseFixities = map (\(Fixity assoc prio name) -> CypFixity assoc (IntPrio prio) $ translateQName name) baseFixities
-
-atomFixity :: (Assoc, Prio, CypApplied)
-atomFixity = (AssocNone, AtomPrio, AppliedFull)
-
 data UnparseMode a = UnparseMode { unparseFree :: a -> String, unparseSchematic :: a -> String }
 
 upModeRaw :: UnparseMode String
@@ -300,11 +294,34 @@ upModeIdx = UnparseMode
     { unparseFree = \(x,n) -> x ++ "~" ++ show n
     , unparseSchematic = \(x,n) -> "?" ++ x ++ "~" ++ show n }
 
+data Unparse = Unparse Doc (Assoc, Prio, CypApplied)
+
+upDoc :: Unparse -> Doc
+upDoc (Unparse d _) = d
+
+upAssoc :: Unparse -> Assoc
+upAssoc (Unparse _ (a, _, _)) = a
+
+upPrio :: Unparse -> Prio
+upPrio (Unparse _ (_, p, _)) = p
+
+upApplied :: Unparse -> CypApplied
+upApplied (Unparse _ (_, _, x)) = x
+
+
+unparseFixities :: [CypFixity]
+unparseFixities = map (\(Fixity assoc prio name) -> CypFixity assoc (IntPrio prio) $ translateQName name) baseFixities
+
+atomFixity :: (Assoc, Prio, CypApplied)
+atomFixity = (AssocNone, AtomPrio, AppliedFull)
+
+finalizePartialApp :: Unparse -> Unparse
+finalizePartialApp up
+    | upApplied up == AppliedFull = up
+    | otherwise = Unparse (upDoc up) atomFixity
+
 unparseAbsTerm :: UnparseMode a -> AbsTerm a -> Doc
-unparseAbsTerm mode = finalize . unparseAbsTermRaw mode
-  where
-    finalize (d, (_,_, AppliedFull)) = d
-    finalize (d, _) = parens d
+unparseAbsTerm mode = upDoc . finalizePartialApp . unparseAbsTermRaw mode
 
 unparseTerm = unparseAbsTerm upModeIdx
 unparseRawTerm = unparseAbsTerm upModeRaw
@@ -315,51 +332,42 @@ unparseAbsProp mode (Prop l r) = unparseAbsTerm mode l <+> text symPropEq <+> un
 unparseProp = unparseAbsProp upModeIdx
 unparseRawProp = unparseAbsProp upModeRaw
 
-unparseAbsTermRaw :: UnparseMode a -> AbsTerm a -> (Doc, (Assoc, Prio, CypApplied))
-unparseAbsTermRaw mode (Application tl tr) = (doc', fixity')
+unparseAbsTermRaw mode (Application tl tr) = Unparse doc' fixity'
   where
     l = unparseAbsTermRaw mode tl
-    r = applyFull $ unparseAbsTermRaw mode tr
+    r = finalizePartialApp $ unparseAbsTermRaw mode tr
 
-    doc' = case applied l of
+    doc' = case upApplied l of
         Applied0
-            | prio r > prio l -> doc r <+> doc l
-            | prio l == prio r && assocsTo AssocLeft l r -> (doc r) <+> (doc l)
-            | otherwise -> close r <+> (doc l)
+            | upPrio r > upPrio l -> upDoc r <+> upDoc l
+            | upPrio l == upPrio r && assocsTo AssocLeft l r -> (upDoc r) <+> (upDoc l)
+            | otherwise -> close r <+> (upDoc l)
         Applied1
-            | prio r > prio l -> doc l <+> doc r
-            | prio l == prio r && assocsTo AssocRight l r -> doc l <+> doc r
-            | otherwise -> doc l <+> close r
+            | upPrio r > upPrio l -> upDoc l <+> upDoc r
+            | upPrio l == upPrio r && assocsTo AssocRight l r -> upDoc l <+> upDoc r
+            | otherwise -> upDoc l <+> close r
         AppliedFull
-            | prio l < AppPrio -> close l <+> close r
-            | otherwise -> doc l <+> close r
+            | upPrio l < AppPrio -> close l <+> close r
+            | otherwise -> upDoc l <+> close r
 
-    fixity' = case applied l of
-        Applied0 -> (assoc l, prio l, Applied1)
-        Applied1 -> (assoc l, prio l, AppliedFull)
+    fixity' = case upApplied l of
+        Applied0 -> (upAssoc l, upPrio l, Applied1)
+        Applied1 -> (upAssoc l, upPrio l, AppliedFull)
         AppliedFull -> (AssocLeft, AppPrio, AppliedFull)
 
-    close u = case prio u of
-        AtomPrio -> doc u
-        _ -> parens (doc u)
+    close u = case upPrio u of
+        AtomPrio -> upDoc u
+        _ -> parens (upDoc u)
 
-    applyFull u = case applied u of
-        AppliedFull -> u
-        _ -> (parens (doc u), atomFixity)
+    assocsTo a l r = upPrio l == upPrio r && upAssoc l == a && upAssoc r == a
 
-    assocsTo a l r = prio l == prio r && assoc l == a && assoc r == a
-
-    doc (x, _) = x
-    assoc (_, (x, _, _)) = x
-    prio (_, (_, x, _)) = x
-    applied (_, (_, _, x)) = x
-unparseAbsTermRaw _ (Literal l) = (text $ unparseLiteral l, atomFixity)
+unparseAbsTermRaw _ (Literal l) = Unparse (text $ unparseLiteral l) atomFixity
 unparseAbsTermRaw _ (Const c) =
     case find (\(CypFixity _ _ n) -> n == c) unparseFixities of
-        Nothing -> (text c, atomFixity)
-        Just (CypFixity assoc prio _) -> (text c, (assoc, prio, Applied0))
-unparseAbsTermRaw mode (Free v) = (text $ unparseFree mode v, atomFixity)
-unparseAbsTermRaw mode (Schematic v) = (text $ unparseSchematic mode v, atomFixity)
+        Nothing -> Unparse (text c) atomFixity
+        Just (CypFixity assoc prio _) -> Unparse (text c) (assoc, prio, Applied0)
+unparseAbsTermRaw mode (Free v) = Unparse (text $ unparseFree mode v) atomFixity
+unparseAbsTermRaw mode (Schematic v) = Unparse (text $ unparseSchematic mode v) atomFixity
 
 unparseLiteral :: Literal -> String
 unparseLiteral (Char c) = show c
