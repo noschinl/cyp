@@ -1,0 +1,38 @@
+Lemma: reverse (snoc xs x) .=. x : reverse xs
+
+Proof by induction on List xs
+
+Case []
+
+    To show: reverse (snoc [] x) .=. x : reverse []
+
+    Proof
+                                reverse (snoc [] x)
+        (by def snoc)       .=. reverse [x]
+        (by def reverse)    .=. reverse [] ++ [x]
+        (by def reverse)    .=. [] ++ [x]
+        (by def ++)         .=. [x]
+
+                                x : reverse []
+        (by def reverse)    .=. [x]
+
+    QED
+
+Case y:ys
+
+    To show: reverse (snoc (y:ys) x) .=. x : reverse (y:ys)
+    IH: reverse (snoc ys x) .=. x : reverse ys
+
+    Proof
+                                reverse (snoc (y:ys) x)
+        (by def snoc)       .=. reverse (y : snoc ys x)
+        (by def reverse)    .=. reverse (snoc ys x) ++ [y]
+        (by IH)             .=. (x : reverse ys) ++ [y]
+        (by def ++)         .=. x : (reverse ys ++ [y])
+
+                                x : reverse (y:ys)
+        (by def reverse)    .=. x : (reverse ys ++ [y])
+
+    QED
+
+QED

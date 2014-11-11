@@ -1,0 +1,29 @@
+Lemma: snoc xs y .=. xs ++ [y]
+
+Proof by induction on List xs
+
+Case []
+
+    To show: snoc [] y .=. [] ++ [y]
+
+    Proof
+                            snoc [] y
+        (by def snoc)   .=. [y]
+        (by def ++)     .=. [] ++ [y]
+
+    QED
+
+Case x:xs
+    To show: snoc (x:xs) y .=. (x:xs) ++ [y]
+    IH: snoc xs y .=. xs ++ [y]
+
+    Proof
+                            snoc (x:xs) y
+        (by def snoc)   .=. x : snoc xs y
+        (by IH)         .=. x : (xs ++ [y])
+
+                            (x:xs) ++ [y]
+        (by def ++)     .=. x : (xs ++ [y])
+    QED
+
+QED

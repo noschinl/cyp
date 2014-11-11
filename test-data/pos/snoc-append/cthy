@@ -1,0 +1,9 @@
+data List a = [] | a : List a
+
+[] ++ ys = ys
+(x:xs) ++ ys = x : (xs ++ ys)
+
+snoc [] y = [y]
+snoc (x:xs) y = x : snoc xs y
+
+goal snoc xs y .=. xs ++ [y]
