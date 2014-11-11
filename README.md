@@ -14,7 +14,7 @@ The use of this tool to verify Haskell functions is justified by the following c
 
 
 Getting started
---------------------
+---------------
 
 Extract the program to some directory and run
 
@@ -27,7 +27,7 @@ This produces a binary `cyp` in the `dist/build/cyp` folder. You can then check 
 
 where `<background.cthy>` defines the program and available lemmas and `<proof.cprf>` contains the proof to be checked.
 
-The source code for cyp also contains some example theories and proofs (look for `*.cthy` and `*.cprf` files).
+The source code for cyp also contains some example theories and proofs (look for the files in `test-data/pos`).
 
 
 Syntax of Proofs
@@ -77,6 +77,6 @@ followed by a list of equations, like for an equational proof. Again, the proof 
 
 
 Known limitations
------------------------
+-----------------
 
-  * There is no check that the functions defined in the background-theory terminate (on finite inputs). The focus of this tool is checking the proofs of students against some known-to-be-good background theory.
+  * There is no check that the functions defined in the background theory terminate (on finite inputs). The focus of this tool is checking the proofs of students against some known-to-be-good background theory.
