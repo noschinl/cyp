@@ -1,0 +1,2 @@
+The following goals are still open:
+    xs~0 ++ x~0 : [] .=. (x~0 : []) ++ xs~0
