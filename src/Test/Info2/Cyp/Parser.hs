@@ -39,7 +39,7 @@ data ParseLemma = ParseLemma String RawProp ParseProof -- Proposition, Proof
 data ParseCase = ParseCase
     { pcCons :: RawTerm
     , pcToShow :: RawProp
-    , pcIndHyps :: [Named RawProp]
+    , pcAssms :: [Named RawProp]
     , pcProof :: ParseProof
     }
 
@@ -265,26 +265,24 @@ caseParser = do
     manySpacesOrComment
     toShow <- toShowParser
     manySpacesOrComment
-    indHyps <- indHypsP
+    assms <- assmsP
     manySpacesOrComment
     proof <- proofParser
     manySpacesOrComment
     return $ ParseCase
         { pcCons = t
         , pcToShow = toShow
-        , pcIndHyps = indHyps
+        , pcAssms = assms
         , pcProof = proof
         }
   where
-    indHypsP = many $ do
-        hyp <- indHypP
+    assmsP = flip manyTill (lookAhead (string "Proof")) $ do
+        assm <- assmP
         manySpacesOrComment
-        return hyp
-    indHypP = do
-        string "IH"
-        spaces
+        return assm
+    assmP = do
         (name, prop) <- namedPropParser defaultToFree (many alphaNum)
-        return $ Named (if name == "" then "IH" else "IH " ++ name) prop
+        return $ Named (if name == "" then "assumption" else name) prop
 
 
 manySpacesOrComment :: Parsec [Char] u ()

@@ -146,7 +146,7 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
                     text "To show:" <+> unparseProp toShow
                     $+$ debug (text "Subgoal:" <+> unparseProp subgoal))
 
-            userHyps <- checkPcHyps prop over recArgNames $ pcIndHyps pc
+            userHyps <- checkPcHyps prop over recArgNames $ pcAssms pc
 
             modify (\env -> env { axioms = userHyps ++ axioms env })
             env <- get
