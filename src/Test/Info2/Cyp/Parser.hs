@@ -357,7 +357,7 @@ readFunc syms pds = do
             P.ParseOk (Exts.FunBind [Exts.Match _ name pat _ (Exts.UnGuardedRhs rhs) (Exts.BDecls [])])
                 -> Right (translateName name, pat, rhs)
             P.ParseOk _ -> errStr "Invalid function definition."
-            f@(P.ParseFailed _ _ ) -> errStr $ show f
+            f@(P.ParseFailed _ _ ) -> err $ renderSrcExtsFail "declaration" f
     parseFunc _ = Nothing
 
 splitStringAt :: Eq a => [a] -> [a] -> [a] -> [[a]]

@@ -7,10 +7,13 @@ module Test.Info2.Cyp.Util
     , errCtxtStr
     , indent
     , eitherToErr
+    , renderSrcExtsFail
     )
 where
 
-import Text.PrettyPrint (Doc, ($+$), empty, nest, text)
+import Data.Monoid (mempty)
+import Language.Haskell.Exts (SrcLoc (..), ParseResult (..))
+import Text.PrettyPrint (Doc, (<>), (<+>), ($+$), colon, empty, int, nest, text)
 
 {- Error handling combinators ---------------------------------------}
 
@@ -39,3 +42,9 @@ eitherToErr (Right x) = Right x
 debug :: Doc -> Doc
 --debug = mempty
 debug = id
+
+renderSrcExtsFail :: String -> ParseResult a -> Doc
+renderSrcExtsFail _ (ParseOk _) = mempty
+renderSrcExtsFail typ (ParseFailed (SrcLoc _ _ col) msg) =
+    (text "Failed to parse" <+> text typ <+> text "expression at position" <+> int col <> colon)
+    `indent` text msg

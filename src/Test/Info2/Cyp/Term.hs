@@ -186,7 +186,7 @@ iparseTermRaw :: (String -> Err (AbsTerm a)) -> String -> Err (AbsTerm a)
 iparseTermRaw f s = errCtxt (text "Parsing term" <+> quotes (text s)) $
     case P.parseExpWithMode mode s of
         P.ParseOk p -> translateExp (withDefConsts f) p
-        x@(P.ParseFailed _ _) -> errStr $ show x
+        x@(P.ParseFailed _ _) -> err $ renderSrcExtsFail "expression" x
   where
     mode = P.defaultParseMode { P.fixities = Just $ Fixity AssocNone (-1) (UnQual $ Symbol symPropEq) : baseFixities }
     withDefConsts f x = if x `elem` defaultConsts then return (Const x) else f x
