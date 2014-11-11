@@ -40,12 +40,13 @@ data ParseCase = ParseCase
     { pcCons :: RawTerm
     , pcToShow :: RawProp
     , pcIndHyps :: [Named RawProp]
-    , pcEqns :: ParseProof
+    , pcProof :: ParseProof
     }
 
 data ParseProof
-    = ParseInduction String RawTerm [ParseCase] -- DataTyp, Over, Cases
+    = ParseInduction String RawTerm [ParseCase] -- data type, induction variable, cases
     | ParseEquation (EqnSeqq RawTerm)
+    | ParseExt RawTerm RawProp ParseProof -- fixed variable, to show, subproof
 
 
 trim :: String -> String
@@ -128,16 +129,29 @@ equationProofParser = do
     return $ ParseEquation eqns
 
 inductionProofParser :: Parsec [Char] Env ParseProof
-inductionProofParser =
-    do  keyword "Proof by induction on"
-        datatype <- many (noneOf " \t")
-        lineSpaces
-        over <- termParser defaultToFree
-        manySpacesOrComment
-        cases <- many1 caseParser
-        manySpacesOrComment
-        keywordQED
-        return (ParseInduction datatype over cases)
+inductionProofParser = do
+    keyword "Proof by induction on"
+    datatype <- many (noneOf " \t")
+    lineSpaces
+    over <- termParser defaultToFree
+    manySpacesOrComment
+    cases <- many1 caseParser
+    manySpacesOrComment
+    keywordQED
+    return $ ParseInduction datatype over cases
+
+extProofParser :: Parsec [Char] Env ParseProof
+extProofParser = do
+    keyword "Proof by extensionality with"
+    lineSpaces
+    with <- termParser defaultToFree
+    manySpacesOrComment
+    toShow <- toShowParser
+    manySpacesOrComment
+    proof <- proofParser
+    manySpacesOrComment
+    keywordQED
+    return $ ParseExt with toShow proof
 
 type PropParserMode = [String] -> String -> Err RawTerm
 
@@ -169,9 +183,15 @@ lemmaParser =
     do  keyword "Lemma"
         (name, prop) <- namedPropParser defaultToFree idParser
         manySpacesOrComment
-        prf <- inductionProofParser <|> equationProofParser
+        prf <- proofParser
         manySpacesOrComment
         return $ ParseLemma name prop prf
+
+proofParser :: Parsec [Char] Env ParseProof
+proofParser =
+  inductionProofParser <|>
+  extProofParser <|>
+  equationProofParser
 
 cprfParser ::  Parsec [Char] Env [ParseLemma]
 cprfParser =
@@ -231,30 +251,31 @@ equationsParser = do
         eq <- termParser defaultToFree
         return (rule, eq)
 
+toShowParser :: Parsec [Char] Env RawProp
+toShowParser = do
+    keyword "To show"
+    char ':'
+    propParser defaultToFree
+
 caseParser :: Parsec [Char] Env ParseCase
 caseParser = do
     keywordCase
     lineSpaces
     t <- termParser defaultToFree
     manySpacesOrComment
-    toShow <- toShowP
+    toShow <- toShowParser
     manySpacesOrComment
     indHyps <- indHypsP
     manySpacesOrComment
-    eqnPrf <- equationProofParser
+    proof <- proofParser
     manySpacesOrComment
     return $ ParseCase
         { pcCons = t
         , pcToShow = toShow
         , pcIndHyps = indHyps
-        , pcEqns = eqnPrf
+        , pcProof = proof
         }
   where
-    toShowP = do
-        keyword "To show"
-        lineSpaces
-        char ':'
-        propParser defaultToFree
     indHypsP = many $ do
         hyp <- indHypP
         manySpacesOrComment

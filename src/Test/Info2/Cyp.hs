@@ -11,15 +11,13 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Traversable (traverse)
 import qualified Text.Parsec as Parsec
-import Text.PrettyPrint (Doc, colon, comma, fsep, punctuate, quotes, text, vcat, (<>), (<+>), ($+$))
+import Text.PrettyPrint (colon, comma, fsep, punctuate, quotes, text, vcat, (<>), (<+>), ($+$))
 
 import Test.Info2.Cyp.Env
 import Test.Info2.Cyp.Parser
 import Test.Info2.Cyp.Term
 import Test.Info2.Cyp.Types
 import Test.Info2.Cyp.Util
-
-{- Main -------------------------------------------------------------}
 
 proofFile :: FilePath -> FilePath -> IO (Err ())
 proofFile masterFile studentFile = do
@@ -63,7 +61,7 @@ checkProofs env (l : ls) = do
 checkLemma :: ParseLemma -> Env -> Err (Prop, Env)
 checkLemma (ParseLemma name rprop proof) env = errCtxt (text "Lemma" <+> text name <> colon <+> unparseRawProp rprop) $ do
     let (prop, env') = declareProp rprop env
-    checkProof prop proof env'
+    Prop _ _ <- checkProof prop proof env'
     let proved = generalizeEnvProp env prop
     return (proved, env { axioms = Named name proved : axioms env })
 
@@ -71,18 +69,43 @@ checkProof :: Prop -> ParseProof -> Env -> Err Prop
 checkProof prop (ParseEquation reqns) env = errCtxtStr "Equational proof" $ do
     let (eqns, env') = runState (traverse (state . declareTerm) reqns) env
     proved <- validEqnSeqq (axioms env') eqns
-    case prop == proved of
-        False -> err $ text "Proved proposition does not match goal:"
-                     `indent` (unparseProp proved)
-        True -> return proved
-    return prop
+    when (prop /= proved) $ err $
+        text "Proved proposition does not match goal:" `indent` unparseProp proved
+    return proved
+checkProof prop (ParseExt withRaw toShowRaw proof) env = errCtxt ctxtMsg $
+    flip evalStateT env $ do
+        with <- validateWith withRaw
+        prop' <- validateShow with toShowRaw
+        env <- get
+        lift $ checkProof prop' proof env
+  where
+    ctxtMsg = text "Extensionality with" <+> quotes (unparseRawTerm withRaw)
+
+    validateWith t = do -- lazy code duplication
+        t' <- state (declareTerm t)
+        case t' of
+            Free v -> return v
+            _ -> lift $ err $ text "Term" <+> quotes (unparseTerm t')
+                <+> text "is not a valid variable for extensionality"
+
+    validateShow v raw = do
+        prop' <- state (declareProp raw)
+        let Prop lhs rhs = prop
+        let Prop lhs' rhs' = prop'
+        let lhsE = Application lhs (Free v)
+        let rhsE = Application rhs (Free v)
+        when (lhsE /= lhs') $ bail "Invalid left-hand side of proposition, expected:" lhsE
+        when (rhsE /= rhs') $ bail "Invalid right-hand side of proposition, expected:" rhsE
+        return prop'
+      where
+        bail msg t = lift $ err $ text msg <+> quotes (unparseTerm t)
 checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ do
-    flip runStateT env $ do
+    flip evalStateT env $ do
         dt <- lift (validateDatatype dtRaw)
         over <- validateOver overRaw
-        lift $ validateCases prop dt over casesRaw
+        env <- get
+        lift $ validateCases prop dt over casesRaw env
         return prop
-    return prop
   where
     ctxtMsg = text "Induction over variable"
         <+> quotes (unparseRawTerm overRaw) <+> text "of type" <+> quotes (text dtRaw)
@@ -101,17 +124,15 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
             _ -> lift $ err $ text "Term" <+> quotes (unparseTerm t')
                 <+> text "is not a valid induction variable"
 
-    validateCases :: Prop -> DataType -> IdxName -> [ParseCase] -> Err ()
-    validateCases prop dt over cases = do
-        caseNames <- traverse (validateCase prop dt over) cases
+    validateCases prop dt over cases env = do
+        caseNames <- traverse (validateCase prop dt over env) cases
         case missingCase caseNames of
             Nothing -> return ()
             Just (name, _) -> errStr $ "Missing case '" ++ name ++ "'"
       where
         missingCase caseNames = find (\(name, _) -> name `notElem` caseNames) (getDtConss dt)
 
-    validateCase :: Prop -> DataType -> IdxName -> ParseCase -> Err String
-    validateCase prop dt over pc = errCtxt (text "Case" <+> quotes (unparseRawTerm $ pcCons pc)) $ do
+    validateCase prop dt over env pc = errCtxt (text "Case" <+> quotes (unparseRawTerm $ pcCons pc)) $ do
         (consName, _) <- flip runStateT env $ do
             caseT <- state (variantFixesTerm $ pcCons pc)
             (consName, consArgNs) <- lift $ lookupCons caseT dt
@@ -128,8 +149,8 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
             userHyps <- checkPcHyps prop over recArgNames $ pcIndHyps pc
 
             modify (\env -> env { axioms = userHyps ++ axioms env })
-
-            gets (checkProof subgoal (pcEqns pc))
+            env <- get
+            Prop _ _ <- lift $ checkProof subgoal (pcProof pc) env
             return consName
         return consName
 
@@ -156,7 +177,7 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
         invCaseMsg = text "Invalid case" <+> quotes (unparseTerm t) <> comma
 
     -- XXX rename
-    checkPcHyps :: Prop -> IdxName -> [IdxName] -> [Named RawProp] -> StateT Env (Either Doc) [Named Prop]
+    checkPcHyps :: Prop -> IdxName -> [IdxName] -> [Named RawProp] -> StateT Env Err [Named Prop]
     checkPcHyps prop over recVars rpcHyps = do
         pcHyps <- traverse (traverse (state . declareProp)) rpcHyps
         let indHyps = map (substFreeProp prop . instOver) recVars

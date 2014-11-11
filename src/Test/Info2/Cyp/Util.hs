@@ -15,9 +15,7 @@ import Data.Monoid (mempty)
 import Language.Haskell.Exts (SrcLoc (..), ParseResult (..))
 import Text.PrettyPrint (Doc, (<>), (<+>), ($+$), colon, empty, int, nest, text)
 
-{- Error handling combinators ---------------------------------------}
-
-type Err a = Either Doc a
+type Err = Either Doc
 
 err :: Doc -> Err a
 err = Left
@@ -36,7 +34,7 @@ indent :: Doc -> Doc -> Doc
 indent d1 d2 = d1 $+$ nest 4 d2
 
 eitherToErr :: Show a => Either a b -> Err b
-eitherToErr (Left x) = err $ foldr ($+$) empty (map text $lines $ show x)
+eitherToErr (Left x) = err $ foldr ($+$) empty (map text $ lines $ show x)
 eitherToErr (Right x) = Right x
 
 debug :: Doc -> Doc

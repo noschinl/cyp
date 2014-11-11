@@ -1,0 +1,16 @@
+data List a = [] | a : List a
+
+reverse [] = []
+reverse (x:xs) = reverse xs ++ [x]
+
+[] ++ ys = ys
+(x:xs) ++ ys = x : (xs ++ ys)
+
+id x = x
+
+(f . g) x = f (g x)
+
+axiom app_assoc: (xs ++ ys) ++ zs .=. xs ++ (ys ++ zs)
+axiom rev_app: reverse (xs ++ ys) .=. reverse ys ++ reverse xs
+
+goal reverse . reverse .=. id
