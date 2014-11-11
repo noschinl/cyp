@@ -1,0 +1,5 @@
+Lemma : length (xs ++ ys) .=. length xs + length ys
+    Induction over variable 'xs' of type 'List'
+        Case 'x : xs'
+            Induction hypothesis IH is not valid
+                length (zs~0 ++ ys~0) .=. length zs~0 + length ys~0
