@@ -1,0 +1,3 @@
+Lemma : length (xs ++ ys) .=. length xs + length ys
+    Induction over variable 'xs' of type 'List'
+        Missing case ':'
