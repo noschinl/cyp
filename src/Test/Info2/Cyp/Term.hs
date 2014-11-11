@@ -148,6 +148,13 @@ symPropEq = ".=."
 symUMinus :: String
 symUMinus = "-"
 
+symCons :: String
+symCons = ":"
+
+-- Choose an invalid symbol to represent an if
+symIf :: String
+symIf = ".if"
+
 
 {- Prop operations --------------------------------------------------}
 
@@ -219,13 +226,15 @@ translateExp :: (String -> Err (AbsTerm a)) -> Exp -> Err (AbsTerm a)
 translateExp f (Var v) = f $ translateQName v
 translateExp _ (Con c) = return . Const $ translateQName c
 translateExp _ (Lit l) = return $ Literal l
+translateExp f (If b c1 c2) = Right (Const symIf)
+    `mApp` translateExp f b `mApp` translateExp f c1 `mApp` translateExp f c2
 translateExp f (InfixApp e1 op e2) =
     translateQOp f op `mApp` translateExp f e1 `mApp` translateExp f e2
 translateExp f (App e1 e2) = translateExp f e1 `mApp` translateExp f e2
 translateExp f (NegApp e) = return (Const symUMinus) `mApp` translateExp f e
 translateExp f (LeftSection e op) = translateQOp f op `mApp` translateExp f e
 translateExp f (Paren e) = translateExp f e
-translateExp f (List l) = foldr (\e es -> Right (Const ":") `mApp` translateExp f e `mApp` es) (Right $ Const "[]") l
+translateExp f (List l) = foldr (\e es -> Right (Const symCons) `mApp` translateExp f e `mApp` es) (Right $ Const "[]") l
 translateExp _ e = errStr $ "Unsupported expression syntax used: " ++ show e
 
 translatePat :: Exts.Pat -> Err RawTerm
@@ -331,6 +340,16 @@ unparseAbsProp mode (Prop l r) = unparseAbsTerm mode l <+> text symPropEq <+> un
 
 unparseProp = unparseAbsProp upModeIdx
 unparseRawProp = unparseAbsProp upModeRaw
+
+unparseAbsTermRaw :: UnparseMode a -> AbsTerm a -> Unparse
+unparseAbsTermRaw mode (Application (Application (Application (Const cnst) tb) tcThen) tcElse)
+    | cnst == symIf = Unparse doc' atomFixity
+  where
+    up = upDoc . finalizePartialApp . unparseAbsTermRaw mode
+    b = up tb
+    cThen = up tcThen
+    cElse = up tcElse
+    doc' = parens $ text "if" <+> b <+> text "then" <+> cThen <+> text "else" <+> cElse
 
 unparseAbsTermRaw mode (Application tl tr) = Unparse doc' fixity'
   where
