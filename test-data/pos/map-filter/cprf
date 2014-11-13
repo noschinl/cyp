@@ -27,19 +27,55 @@ Proof by extensionality with xs
       To show: (filter p . map f) (y:ys) .=. (map f . filter (p . f)) (y:ys)
       IH: (filter p . map f) ys .=. (map f . filter (p . f)) ys
 
-      Proof by case analysis on Bool p (f x)
+      Proof by case analysis on Bool p (f y)
 
         Case True
-          Assumption: p (f x) .=. True
+          Assumption: p (f y) .=. True
 
-          Proof by cheating
+          Proof
+
+                                (filter p . map f) (y:ys)
+            (by def .)      .=. filter p (map f (y:ys))
+            (by def map)    .=. filter p (f y : map f ys)
+            (by def filter) .=. if p (f y) then f y : filter p (map f ys) else filter p (map f ys)
+            (by Assumption) .=. if True then f y : filter p (map f ys) else filter p (map f ys)
+            (by if_True)    .=. f y : filter p (map f ys)
+            (by def .)      .=. f y : (filter p . map f) ys
+            (by IH)         .=. f y : (map f . filter (p . f)) ys
+
+                                (map f . filter (p . f)) (y:ys)
+            (by def .)      .=. map f (filter (p . f) (y:ys))
+            (by def filter) .=. map f (if (p . f) y then y : filter (p . f) ys else filter (p . f) ys)
+            (by def .)      .=. map f (if p (f y) then y : filter (p . f) ys else filter (p . f) ys)
+            (by Assumption) .=. map f (if True then y : filter (p . f) ys else filter (p . f) ys)
+            (by if_True)    .=. map f (y : filter (p . f) ys)
+            (by def map)    .=. f y : (map f (filter (p . f) ys))
+            (by def .)      .=. f y : (map f . filter (p . f)) ys
+            
 
           QED
 
         Case False
-          Assumption: p (f x) .=. False
+          Assumption: p (f y) .=. False
 
-          Proof by cheating
+          Proof
+
+                                (filter p . map f) (y:ys)
+            (by def .)      .=. filter p (map f (y:ys))
+            (by def map)    .=. filter p (f y : map f ys)
+            (by def filter) .=. if p (f y) then f y : filter p (map f ys) else filter p (map f ys)
+            (by Assumption) .=. if False then f y : filter p (map f ys) else filter p (map f ys)
+            (by if_False)   .=. filter p (map f ys)
+            (by def .)      .=. (filter p . map f) ys
+            (by IH)         .=. (map f . filter (p . f)) ys
+
+                                (map f . filter (p . f)) (y:ys)
+            (by def .)      .=. map f (filter (p . f) (y:ys))
+            (by def filter) .=. map f (if (p . f) y then y : filter (p . f) ys else filter (p . f) ys)
+            (by def .)      .=. map f (if p (f y) then y : filter (p . f) ys else filter (p . f) ys)
+            (by Assumption) .=. map f (if False then y : filter (p . f) ys else filter (p . f) ys)
+            (by if_False)   .=. map f (filter (p . f) ys)
+            (by def .)      .=. (map f . filter (p . f)) ys
 
           QED
 

@@ -17,7 +17,10 @@ data Env = Env
     }
     deriving Show
 
-data DataType = DataType String [(String, [TConsArg])] -- name cases
+data DataType = DataType
+    { dtName :: String
+    , dtConss :: [(String, [TConsArg])]
+    }
     deriving Show
 
 data Named a = Named String a

@@ -101,22 +101,15 @@ checkProof prop (ParseExt withRaw toShowRaw proof) env = errCtxt ctxtMsg $
       where
         bail msg t = lift $ err $ text msg <+> quotes (unparseTerm t)
 checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ do
+    dt <- validDatatype dtRaw env
     flip evalStateT env $ do
-        dt <- lift (validateDatatype dtRaw)
         over <- validateOver overRaw
         env <- get
-        lift $ validateCases prop dt over casesRaw env
+        lift $ validateCases dt over casesRaw env
         return prop
   where
     ctxtMsg = text "Induction over variable"
         <+> quotes (unparseRawTerm overRaw) <+> text "of type" <+> quotes (text dtRaw)
-
-    validateDatatype name = case find (\dt -> getDtName dt == name) (datatypes env) of
-        Nothing -> err $ fsep $
-            [ text "Invalid datatype" <+> quotes (text name) <> text "."
-            , text "Expected one of:" ]
-            ++ punctuate comma (map (quotes . text . getDtName) $ datatypes env)
-        Just dt -> Right dt
 
     validateOver t = do
         t' <- state (declareTerm t)
@@ -125,19 +118,19 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
             _ -> lift $ err $ text "Term" <+> quotes (unparseTerm t')
                 <+> text "is not a valid induction variable"
 
-    validateCases prop dt over cases env = do
-        caseNames <- traverse (validateCase prop dt over env) cases
+    validateCases dt over cases env = do
+        caseNames <- traverse (validateCase dt over env) cases
         case missingCase caseNames of
             Nothing -> return ()
             Just (name, _) -> errStr $ "Missing case '" ++ name ++ "'"
       where
-        missingCase caseNames = find (\(name, _) -> name `notElem` caseNames) (getDtConss dt)
+        missingCase caseNames = find (\(name, _) -> name `notElem` caseNames) (dtConss dt)
 
-    validateCase prop dt over env pc = errCtxt (text "Case" <+> quotes (unparseRawTerm $ pcCons pc)) $ do
+    validateCase dt over env pc = errCtxt (text "Case" <+> quotes (unparseRawTerm $ pcCons pc)) $ do
         flip evalStateT env $ do
             caseT <- state (variantFixesTerm $ pcCons pc)
-            (consName, consArgNs) <- lift $ lookupCons caseT dt
-            let recArgNames = map snd . filter (\x -> fst x == TRec) $ consArgNs
+            (consName, consArgNs) <- lift $ validConsCase caseT dt
+            let recArgNames = map snd $ filter (\x -> fst x == TRec) consArgNs
 
             let subgoal = substFreeProp prop [(over, caseT)]
 
@@ -152,38 +145,14 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
                             text "To show:" <+> unparseProp toShow
                             $+$ debug (text "Subgoal:" <+> unparseProp subgoal))
 
-                    userHyps <- checkPcHyps prop over recArgNames $ pcAssms pc
+                    userHyps <- checkPcHyps over recArgNames $ pcAssms pc
 
                     modify (\env -> env { axioms = userHyps ++ axioms env })
                     env <- get
                     Prop _ _ <- lift $ checkProof subgoal (pcProof pc) env
                     return consName
 
-    lookupCons t (DataType _ conss) = errCtxt invCaseMsg $ do
-        (consName, consArgs) <- findCons cons
-        argNames <- traverse argName args
-        when (not $ nub args == args) $
-            errStr "Constructor arguments must be distinct"
-        when (not $ length args == length consArgs) $
-            errStr "Invalid number of arguments"
-        return (consName, zip consArgs argNames)
-      where
-        (cons, args) = stripComb t
-
-        argName (Free v) = return v
-        argName _ = errStr "Constructor arguments must be variables"
-
-        findCons (Const name) = case find (\c -> fst c == name) conss of
-            Nothing -> err (text "Invalid constructor, expected one of"
-                <+> (fsep . punctuate comma . map (quotes . text . fst) $ conss))
-            Just x -> return x
-        findCons _ = errStr "Outermost symbol is not a constant"
-
-        invCaseMsg = text "Invalid case" <+> quotes (unparseTerm t) <> comma
-
-    -- XXX rename
-    checkPcHyps :: Prop -> IdxName -> [IdxName] -> [Named RawProp] -> StateT Env Err [Named Prop]
-    checkPcHyps prop over recVars rpcHyps = do
+    checkPcHyps over recVars rpcHyps = do
         pcHyps <- traverse (traverse (state . declareProp)) rpcHyps
         let indHyps = map (substFreeProp prop . instOver) recVars
         lift $ for_ pcHyps $ \(Named name prop) -> case prop `elem` indHyps of
@@ -194,9 +163,81 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
         return $ map (fmap $ generalizeExceptProp recVars) pcHyps
       where
         instOver n = [(over, Free n)]
+checkProof prop (ParseCases dtRaw onRaw casesRaw) env = errCtxt ctxtMsg $ do
+    dt <- validDatatype dtRaw env
+    flip evalStateT env $ do
+        on <- state (declareTerm onRaw)
+        env <- get
+        lift $ validateCases dt on casesRaw env
+        return prop
+  where
+    ctxtMsg = text "Case analyis on"
+        <+> quotes (unparseRawTerm onRaw) <+> text "of type" <+> quotes (text dtRaw)
 
-    getDtConss (DataType _ conss) = conss
-    getDtName (DataType n _) = n
+    -- duplicated code from ParseInduction
+    validateCases dt on cases env = do
+        caseNames <- traverse (validateCase dt on env) cases
+        case missingCase caseNames of
+            Nothing -> return ()
+            Just (name, _) -> errStr $ "Missing case '" ++ name ++ "'"
+      where
+        missingCase caseNames = find (\(name, _) -> name `notElem` caseNames) (dtConss dt)
+
+    validateCase dt on env pc = errCtxt (text "Case" <+> quotes (unparseRawTerm $ pcCons pc)) $ do
+        flip evalStateT env $ do
+            caseT <- state (variantFixesTerm $ pcCons pc)
+            (consName, _) <- lift $ validConsCase caseT dt
+
+            when (isJust $ pcToShow pc) $
+                lift $ errStr "Superfluous 'To show'"
+
+            userAssm <- checkPcAssms on caseT $ pcAssms pc
+
+            modify (\env -> env { axioms = userAssm : axioms env })
+            env <- get
+            Prop _ _ <- lift $ checkProof prop (pcProof pc) env
+            return consName
+
+    checkPcAssms :: Term -> Term -> [Named RawProp] -> StateT Env Err (Named Prop)
+    checkPcAssms on caseT [Named name rawProp] = do
+        prop <- state (declareProp rawProp)
+        let Prop lhs rhs = prop
+        when (lhs /= on) $ lift $ errStr "foo"
+        when (rhs /= caseT) $ lift $ errStr "bar"
+        return $ Named name prop
+    checkPcAssms _ _ _ = lift $ errStr "Expected exactly one assumption"
+
+
+validDatatype :: String -> Env -> Err DataType
+validDatatype name env = case find (\dt -> dtName dt == name) (datatypes env) of
+    Nothing -> err $ fsep $
+        [ text "Invalid datatype" <+> quotes (text name) <> text "."
+        , text "Expected one of:" ]
+        ++ punctuate comma (map (quotes . text . dtName) $ datatypes env)
+    Just dt -> Right dt
+
+validConsCase :: Term -> DataType -> Err (String, [(TConsArg, IdxName)])
+validConsCase t (DataType _ conss) = errCtxt invCaseMsg $ do
+    (consName, consArgs) <- findCons cons
+    argNames <- traverse argName args
+    when (not $ nub args == args) $
+        errStr "Constructor arguments must be distinct"
+    when (not $ length args == length consArgs) $
+        errStr "Invalid number of arguments"
+    return (consName, zip consArgs argNames)
+  where
+    (cons, args) = stripComb t
+
+    argName (Free v) = return v
+    argName _ = errStr "Constructor arguments must be variables"
+
+    findCons (Const name) = case find (\c -> fst c == name) conss of
+        Nothing -> err (text "Invalid constructor, expected one of"
+            <+> (fsep . punctuate comma . map (quotes . text . fst) $ conss))
+        Just x -> return x
+    findCons _ = errStr "Outermost symbol is not a constant"
+
+    invCaseMsg = text "Invalid case" <+> quotes (unparseTerm t) <> comma
 
 validEqnSeq :: [Named Prop] -> EqnSeq Term -> Err Prop
 validEqnSeq _ (Single t) = return (Prop t t)
