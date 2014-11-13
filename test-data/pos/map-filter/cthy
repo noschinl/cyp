@@ -1,0 +1,16 @@
+data List a = [] | a : List a
+
+data Bool = True | False
+
+(f . g) x = f (g x)
+
+map f [] = []
+map f (x:xs) = f x : map f xs
+
+filter p [] = []
+filter p (x:xs) = if p x then x : filter p xs else filter p xs
+
+axiom if_True: (if True then x else y) .=. x
+axiom if_False: (if False then x else y) .=. y
+
+goal filter p . map f .=. map f . filter (p . f)

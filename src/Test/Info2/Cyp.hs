@@ -66,6 +66,7 @@ checkLemma (ParseLemma name rprop proof) env = errCtxt (text "Lemma" <+> text na
     return (proved, env { axioms = Named name proved : axioms env })
 
 checkProof :: Prop -> ParseProof -> Env -> Err Prop
+checkProof _ ParseCheating _ = err $ text "Cheating detected"
 checkProof prop (ParseEquation reqns) env = errCtxtStr "Equational proof" $ do
     let (eqns, env') = runState (traverse (state . declareTerm) reqns) env
     proved <- validEqnSeqq (axioms env') eqns
@@ -133,26 +134,30 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
         missingCase caseNames = find (\(name, _) -> name `notElem` caseNames) (getDtConss dt)
 
     validateCase prop dt over env pc = errCtxt (text "Case" <+> quotes (unparseRawTerm $ pcCons pc)) $ do
-        (consName, _) <- flip runStateT env $ do
+        flip evalStateT env $ do
             caseT <- state (variantFixesTerm $ pcCons pc)
             (consName, consArgNs) <- lift $ lookupCons caseT dt
             let recArgNames = map snd . filter (\x -> fst x == TRec) $ consArgNs
 
             let subgoal = substFreeProp prop [(over, caseT)]
-            toShow <- state (declareProp $ pcToShow pc)
-            when (subgoal /= toShow) $ lift . err
-                 $ text "'To show' does not match subgoal:"
-                 `indent` (
-                    text "To show:" <+> unparseProp toShow
-                    $+$ debug (text "Subgoal:" <+> unparseProp subgoal))
 
-            userHyps <- checkPcHyps prop over recArgNames $ pcAssms pc
+            case pcToShow pc of
+                Nothing ->
+                    lift $ err $ text "Missing 'To show'"
+                Just raw -> do
+                    toShow <- state (declareProp raw)
+                    when (subgoal /= toShow) $ lift . err
+                         $ text "'To show' does not match subgoal:"
+                         `indent` (
+                            text "To show:" <+> unparseProp toShow
+                            $+$ debug (text "Subgoal:" <+> unparseProp subgoal))
 
-            modify (\env -> env { axioms = userHyps ++ axioms env })
-            env <- get
-            Prop _ _ <- lift $ checkProof subgoal (pcProof pc) env
-            return consName
-        return consName
+                    userHyps <- checkPcHyps prop over recArgNames $ pcAssms pc
+
+                    modify (\env -> env { axioms = userHyps ++ axioms env })
+                    env <- get
+                    Prop _ _ <- lift $ checkProof subgoal (pcProof pc) env
+                    return consName
 
     lookupCons t (DataType _ conss) = errCtxt invCaseMsg $ do
         (consName, consArgs) <- findCons cons

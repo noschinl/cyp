@@ -1,0 +1,50 @@
+Lemma: filter p . map f .=. map f . filter (p . f)
+
+Proof by extensionality with xs
+
+  To show: (filter p . map f) xs .=. (map f . filter (p . f)) xs
+
+  Proof by induction on List xs
+
+    Case []
+      To show: (filter p . map f) [] .=. (map f . filter (p . f)) []
+
+      Proof
+
+                             (filter p . map f) []
+        (by def .)       .=. filter p (map f [])
+        (by def map)     .=. filter p []
+        (by def filter)  .=. []
+
+                             (map f . filter (p . f)) []
+        (by def .)       .=. map f (filter (p . f) [])
+        (by def filter)  .=. map f []
+        (by def map)     .=. []
+
+      QED
+
+    Case y:ys
+      To show: (filter p . map f) (y:ys) .=. (map f . filter (p . f)) (y:ys)
+      IH: (filter p . map f) ys .=. (map f . filter (p . f)) ys
+
+      Proof by case analysis on Bool p (f x)
+
+        Case True
+          Assumption: p (f x) .=. True
+
+          Proof by cheating
+
+          QED
+
+        Case False
+          Assumption: p (f x) .=. False
+
+          Proof by cheating
+
+          QED
+
+      QED
+
+  QED
+
+QED
