@@ -133,7 +133,7 @@ equationProofParser = do
 inductionProofParser :: Parsec [Char] Env ParseProof
 inductionProofParser = do
     keyword "Proof by induction on"
-    datatype <- many (noneOf " \t")
+    datatype <- many1 (noneOf " \t")
     lineSpaces
     over <- termParser defaultToFree
     manySpacesOrComment
@@ -145,7 +145,7 @@ inductionProofParser = do
 caseProofParser :: Parsec [Char] Env ParseProof
 caseProofParser = do
     keyword "Proof by case analysis on"
-    datatype <- many (noneOf " \t")
+    datatype <- many1 (noneOf " \t")
     lineSpaces
     over <- termParser defaultToFree
     manySpacesOrComment
