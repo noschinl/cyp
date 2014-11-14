@@ -202,9 +202,11 @@ checkProof prop (ParseCases dtRaw onRaw casesRaw) env = errCtxt ctxtMsg $ do
     checkPcAssms on caseT [Named name rawProp] = do
         prop <- state (declareProp rawProp)
         let Prop lhs rhs = prop
-        when (lhs /= on) $ lift $ errStr "foo"
-        when (rhs /= caseT) $ lift $ errStr "bar"
+        when (lhs /= on) $ bail "Invalid left-hand side of assumption, expected:" on
+        when (rhs /= caseT) $ bail "Invalid right-hand side of assumption, expected:" caseT
         return $ Named name prop
+      where
+        bail msg t = lift $ err $ text msg <+> quotes (unparseTerm t)
     checkPcAssms _ _ _ = lift $ errStr "Expected exactly one assumption"
 
 
