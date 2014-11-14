@@ -1,0 +1,13 @@
+data List a = [] | a : List a
+
+data Bool = True | False
+
+filter f [] = []
+filter f (x : xs) = if f x then x : filter f xs else filter f xs
+
+(f . g) x = f (g x)
+
+axiom if_True: (if True then x else y) .=. x
+axiom if_False: (if False then x else y) .=. y
+
+goal filter p . filter p .=. filter p
