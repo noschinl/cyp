@@ -1,0 +1,83 @@
+Lemma fpfp: filter p (filter p xs) .=. filter p xs
+
+Proof by induction on List xs
+
+  Case []
+
+    To show: filter p (filter p []) .=. filter p []
+
+    Proof
+
+                          filter p (filter p [])
+      (by def filter) .=. filter p []
+
+    QED
+
+  Case x:xs
+
+    To show: filter p (filter p (x:xs)) .=. filter p (x:xs)
+    IH: filter p (filter p xs) .=. filter p xs
+
+    Proof by case analysis on Bool p x
+
+      Case True
+
+        Assumption: p x .=. True
+
+        Proof
+
+                              filter p (filter p (x:xs))
+          (by def filter) .=. filter p (if p x then x : filter p xs else filter p xs)
+          (by Assumption) .=. filter p (if True then x : filter p xs else filter p xs)
+          (by if_True)    .=. filter p (x : filter p xs)
+          (by def filter) .=. if p x then x : filter p (filter p xs) else filter p (filter p xs)
+          (by Assumption) .=. if True then x : filter p (filter p xs) else filter p (filter p xs)
+          (by if_True)    .=. x : filter p (filter p xs)
+          (by IH)         .=. x : filter p xs
+
+                              filter p (x:xs)
+          (by def filter) .=. if p x then x : filter p xs else filter p xs
+          (by Assumption) .=. if True then x : filter p xs else filter p xs
+          (by if_True)    .=. x : filter p xs
+
+        QED
+
+      Case False
+
+        Assumption: p x .=. False
+
+        Proof
+
+                              filter p (filter p (x:xs))
+          (by def filter) .=. filter p (if p x then x : filter p xs else filter p xs)
+          (by Assumption) .=. filter p (if False then x : filter p xs else filter p xs)
+          (by if_False)   .=. filter p (filter p xs)
+          (by IH)         .=. filter p xs
+
+                              filter p (x:xs)
+          (by def filter) .=. if p x then x : filter p xs else filter p xs
+          (by Assumption) .=. if False then x : filter p xs else filter p xs
+          (by if_False)   .=. filter p xs
+
+        QED
+
+    QED
+
+QED
+
+
+Lemma: filter p . filter p .=. filter p
+
+Proof by extensionality with xs
+
+  To show: (filter p . filter p) xs .=. filter p xs
+
+  Proof
+  
+                   (filter p . filter p) xs
+    (by def .) .=. filter p (filter p xs)
+    (by fpfp)  .=. filter p xs
+  
+  QED
+
+QED

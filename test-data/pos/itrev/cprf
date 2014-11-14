@@ -18,12 +18,12 @@ Case [] -- base case
 Case x:xs  -- induction step
 
     To show: itrev (x:xs) ys .=. reverse (x:xs) ++ ys
-    IH 1: itrev xs ys .=. reverse xs ++ ys
+    IH1: itrev xs ys .=. reverse xs ++ ys
 
     Proof
                                 itrev (x:xs) ys
         (by def itrev)      .=. itrev xs (x:ys)
-        (by IH 1)           .=. reverse xs ++ (x:ys)
+        (by IH1)            .=. reverse xs ++ (x:ys)
 
                                 reverse (x:xs) ++ ys
         (by def reverse)    .=. (reverse xs ++ [x]) ++ ys

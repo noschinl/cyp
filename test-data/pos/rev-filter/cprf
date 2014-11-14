@@ -1,0 +1,93 @@
+Lemma: reverse . filter p .=. filter p . reverse
+
+Proof by extensionality with xs
+
+  To show: (reverse . filter p) xs .=. (filter p . reverse) xs
+
+  Proof by induction on List xs
+
+    Case []
+
+      To show: (reverse . filter p) [] .=. (filter p . reverse) []
+
+      Proof
+
+                             (reverse . filter p) []
+        (by def .)       .=. reverse (filter p [])
+        (by def filter)  .=. reverse []
+        (by def reverse) .=. []
+
+                             (filter p . reverse) []
+        (by def .)       .=. filter p (reverse [])
+        (by def reverse) .=. filter p []
+        (by def filter)  .=. []
+
+      QED
+
+    Case x:xs
+
+      To show: (reverse . filter p) (x:xs) .=. (filter p . reverse) (x:xs)
+      IH: (reverse . filter p) xs .=. (filter p . reverse) xs
+
+      Proof by case analysis on Bool p x
+
+        Case False
+
+          Assumption: p x .=. False
+
+          Proof
+
+                                 (reverse . filter p) (x:xs)
+            (by def .)       .=. reverse (filter p (x:xs))
+            (by def filter)  .=. reverse (if p x then x : filter p xs else filter p xs)
+            (by Assumption)  .=. reverse (if False then x : filter p xs else filter p xs)
+            (by if_False)    .=. reverse (filter p xs)
+            (by def .)       .=. (reverse . filter p) xs
+            (by IH)          .=. (filter p . reverse) xs
+
+                                 (filter p . reverse) (x:xs)
+            (by def .)       .=. filter p (reverse (x:xs))
+            (by def reverse) .=. filter p (reverse xs ++ [x])
+            (by filter_app)  .=. filter p (reverse xs) ++ filter p [x]
+            (by def filter)  .=. filter p (reverse xs) ++ (if p x then x : filter p [] else filter p [])
+            (by Assumption)  .=. filter p (reverse xs) ++ (if False then x : filter p [] else filter p [])
+            (by if_False)    .=. filter p (reverse xs) ++ filter p []
+            (by def filter)  .=. filter p (reverse xs) ++ []
+            (by app_empty)   .=. filter p (reverse xs)
+            (by def .)       .=. (filter p . reverse) xs
+
+          QED
+
+        Case True
+
+          Assumption: p x .=. True
+
+          Proof
+
+                                 (reverse . filter p) (x:xs)
+            (by def .)       .=. reverse (filter p (x:xs))
+            (by def filter)  .=. reverse (if p x then x : filter p xs else filter p xs)
+            (by Assumption)  .=. reverse (if True then x : filter p xs else filter p xs)
+            (by if_True)     .=. reverse (x : filter p xs)
+            (by def reverse) .=. reverse (filter p xs) ++ [x]
+            (by def .)       .=. (reverse . filter p) xs ++ [x]
+            (by IH)          .=. (filter p . reverse) xs ++ [x]
+
+                                 (filter p . reverse) (x:xs)
+            (by def .)       .=. filter p (reverse (x:xs))
+            (by def reverse) .=. filter p (reverse xs ++ [x])
+            (by filter_app)  .=. filter p (reverse xs) ++ filter p [x]
+            (by def filter)  .=. filter p (reverse xs) ++ (if p x then x : filter p [] else filter p [])
+            (by Assumption)  .=. filter p (reverse xs) ++ (if True then x : filter p [] else filter p [])
+            (by if_True)     .=. filter p (reverse xs) ++ (x : filter p [])
+            (by def filter)  .=. filter p (reverse xs) ++ [x]
+            (by def .)       .=. (filter p . reverse) xs ++ [x]
+
+          QED
+
+
+      QED
+
+  QED
+
+QED

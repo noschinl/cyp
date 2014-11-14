@@ -1,0 +1,22 @@
+data List a = [] | a : List a
+
+data Bool = True | False
+
+filter f [] = []
+filter f (x : xs) = if f x then x : filter f xs else filter f xs
+
+reverse [] = []
+reverse (x:xs) = reverse xs ++ [x]
+
+[] ++ ys = ys
+(x:xs) ++ ys = x : (xs ++ ys)
+
+(f . g) x = f (g x)
+
+axiom if_True: (if True then x else y) .=. x
+axiom if_False: (if False then x else y) .=. y
+
+axiom filter_app: filter p xs ++ filter p ys .=. filter p (xs ++ ys)
+axiom app_empty: xs ++ [] .=. xs
+
+goal reverse . filter p .=. filter p . reverse

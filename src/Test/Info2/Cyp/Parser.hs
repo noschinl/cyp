@@ -12,7 +12,7 @@ module Test.Info2.Cyp.Parser
     )
 where
 
-import Control.Applicative ((<$>))
+import Control.Applicative ((<$>), (<*))
 import Data.Char
 import Data.Maybe
 import Data.Traversable (traverse)
@@ -38,8 +38,8 @@ data ParseLemma = ParseLemma String RawProp ParseProof -- Proposition, Proof
 
 data ParseCase = ParseCase
     { pcCons :: RawTerm
-    , pcToShow :: RawProp
-    , pcIndHyps :: [Named RawProp]
+    , pcToShow :: Maybe RawProp
+    , pcAssms :: [Named RawProp]
     , pcProof :: ParseProof
     }
 
@@ -47,6 +47,8 @@ data ParseProof
     = ParseInduction String RawTerm [ParseCase] -- data type, induction variable, cases
     | ParseEquation (EqnSeqq RawTerm)
     | ParseExt RawTerm RawProp ParseProof -- fixed variable, to show, subproof
+    | ParseCases String RawTerm [ParseCase] -- data type, term, cases
+    | ParseCheating
 
 
 trim :: String -> String
@@ -131,7 +133,7 @@ equationProofParser = do
 inductionProofParser :: Parsec [Char] Env ParseProof
 inductionProofParser = do
     keyword "Proof by induction on"
-    datatype <- many (noneOf " \t")
+    datatype <- many1 (noneOf " \t")
     lineSpaces
     over <- termParser defaultToFree
     manySpacesOrComment
@@ -139,6 +141,25 @@ inductionProofParser = do
     manySpacesOrComment
     keywordQED
     return $ ParseInduction datatype over cases
+
+caseProofParser :: Parsec [Char] Env ParseProof
+caseProofParser = do
+    keyword "Proof by case analysis on"
+    datatype <- many1 (noneOf " \t")
+    lineSpaces
+    over <- termParser defaultToFree
+    manySpacesOrComment
+    cases <- many1 caseParser
+    manySpacesOrComment
+    keywordQED
+    return $ ParseCases datatype over cases
+
+cheatingProofParser :: Parsec [Char] Env ParseProof
+cheatingProofParser = do
+    keyword "Proof by cheating"
+    manySpacesOrComment
+    keywordQED
+    return ParseCheating
 
 extProofParser :: Parsec [Char] Env ParseProof
 extProofParser = do
@@ -191,6 +212,8 @@ proofParser :: Parsec [Char] Env ParseProof
 proofParser =
   inductionProofParser <|>
   extProofParser <|>
+  caseProofParser <|>
+  cheatingProofParser <|>
   equationProofParser
 
 cprfParser ::  Parsec [Char] Env [ParseLemma]
@@ -263,28 +286,25 @@ caseParser = do
     lineSpaces
     t <- termParser defaultToFree
     manySpacesOrComment
-    toShow <- toShowParser
-    manySpacesOrComment
-    indHyps <- indHypsP
+    toShow <- optionMaybe (toShowParser <* manySpacesOrComment)
+    assms <- assmsP
     manySpacesOrComment
     proof <- proofParser
     manySpacesOrComment
     return $ ParseCase
         { pcCons = t
         , pcToShow = toShow
-        , pcIndHyps = indHyps
+        , pcAssms = assms
         , pcProof = proof
         }
   where
-    indHypsP = many $ do
-        hyp <- indHypP
+    assmsP = flip manyTill (lookAhead (string "Proof")) $ do
+        assm <- assmP
         manySpacesOrComment
-        return hyp
-    indHypP = do
-        string "IH"
-        spaces
+        return assm
+    assmP = do
         (name, prop) <- namedPropParser defaultToFree (many alphaNum)
-        return $ Named (if name == "" then "IH" else "IH " ++ name) prop
+        return $ Named (if name == "" then "assumption" else name) prop
 
 
 manySpacesOrComment :: Parsec [Char] u ()
