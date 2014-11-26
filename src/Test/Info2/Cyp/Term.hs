@@ -247,7 +247,7 @@ translatePat (Exts.PInfixApp p1 qn p2) =
 translatePat (Exts.PApp qn ps) = do
     cs <- traverse translatePat ps
     return $ listComb (Const $ translateQName qn) cs
-translatePat (Exts.PTuple _) = errStr "tuple patterns are not supported"
+translatePat (Exts.PTuple _ _) = errStr "tuple patterns are not supported"
 translatePat (Exts.PList ps) = foldr (\p cs -> Right (Const ":") `mApp` translatePat p `mApp` cs) (Right $ Const "[]") ps
 translatePat (Exts.PParen p) = translatePat p
 translatePat (Exts.PAsPat _ _) = errStr "as patterns are not supported"
