@@ -63,6 +63,9 @@ eol = do
         <?> "end of line"
     return ()
 
+lineBreak :: Parsec [Char] u ()
+lineBreak = eol >> manySpacesOrComment
+
 idParser :: Parsec [Char] u String
 idParser = idP <?> "Id"
   where
@@ -123,48 +126,36 @@ funParser = do
     return (FunDef cs)
 
 equationProofParser :: Parsec [Char] Env ParseProof
-equationProofParser = do
-    keyword "Proof"
-    manySpacesOrComment
-    eqns <- equationsParser
-    manySpacesOrComment
-    keywordQED
-    return $ ParseEquation eqns
+equationProofParser = fmap ParseEquation equationsParser
 
 inductionProofParser :: Parsec [Char] Env ParseProof
 inductionProofParser = do
-    keyword "Proof by induction on"
+    keyword "on"
     datatype <- many1 (noneOf " \t")
     lineSpaces
     over <- termParser defaultToFree
     manySpacesOrComment
     cases <- many1 caseParser
     manySpacesOrComment
-    keywordQED
     return $ ParseInduction datatype over cases
 
 caseProofParser :: Parsec [Char] Env ParseProof
 caseProofParser = do
-    keyword "Proof by case analysis on"
+    keyword "on"
     datatype <- many1 (noneOf " \t")
     lineSpaces
     over <- termParser defaultToFree
     manySpacesOrComment
     cases <- many1 caseParser
     manySpacesOrComment
-    keywordQED
     return $ ParseCases datatype over cases
 
 cheatingProofParser :: Parsec [Char] Env ParseProof
-cheatingProofParser = do
-    keyword "Proof by cheating"
-    manySpacesOrComment
-    keywordQED
-    return ParseCheating
+cheatingProofParser = return ParseCheating
 
 extProofParser :: Parsec [Char] Env ParseProof
 extProofParser = do
-    keyword "Proof by extensionality with"
+    keyword "with"
     lineSpaces
     with <- termParser defaultToFree
     manySpacesOrComment
@@ -172,7 +163,6 @@ extProofParser = do
     manySpacesOrComment
     proof <- proofParser
     manySpacesOrComment
-    keywordQED
     return $ ParseExt with toShow proof
 
 type PropParserMode = [String] -> String -> Err RawTerm
@@ -210,12 +200,17 @@ lemmaParser =
         return $ ParseLemma name prop prf
 
 proofParser :: Parsec [Char] Env ParseProof
-proofParser =
-  inductionProofParser <|>
-  extProofParser <|>
-  caseProofParser <|>
-  cheatingProofParser <|>
-  equationProofParser
+proofParser = do
+    keyword "Proof"
+    p <- choice
+        [ keyword "by induction" >> inductionProofParser
+        , keyword "by extensionality" >> extProofParser
+        , keyword "by case analysis" >> caseProofParser
+        , keyword "by cheating" >> lineBreak >> cheatingProofParser
+        , lineBreak >> equationProofParser
+        ]
+    keywordQED
+    return p
 
 cprfParser ::  Parsec [Char] Env [ParseLemma]
 cprfParser =
