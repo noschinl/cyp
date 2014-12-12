@@ -131,7 +131,7 @@ equationProofParser = fmap ParseEquation equationsParser
 inductionProofParser :: Parsec [Char] Env ParseProof
 inductionProofParser = do
     keyword "on"
-    datatype <- many1 (noneOf " \t")
+    datatype <- many1 (noneOf " \t\r\n" <?> "datatype")
     lineSpaces
     over <- termParser defaultToFree
     manySpacesOrComment
@@ -222,9 +222,8 @@ lineSpaces :: Parsec [Char] u ()
 lineSpaces = skipMany (oneOf " \t") <?> "horizontal white space"
 
 keyword :: String -> Parsec [Char] u ()
-keyword kw = try $ do
-    _ <- string kw
-    notFollowedBy alphaNum
+keyword kw = do
+    try (string kw >> notFollowedBy (alphaNum <?> "")) <?> "keyword " ++ show kw
     lineSpaces
 
 keywordCase :: Parsec [Char] u ()
@@ -234,7 +233,7 @@ keywordQED :: Parsec [Char] u ()
 keywordQED = keyword "QED"
 
 toEol :: Parsec [Char] u String
-toEol = manyTill anyChar (eof <|> try eol <|> commentParser)
+toEol = manyTill anyChar (eof <|> eol <|> commentParser)
 
 toEol1 :: Parsec [Char] u String
 toEol1 = do
