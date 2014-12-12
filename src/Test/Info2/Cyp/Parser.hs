@@ -57,6 +57,20 @@ trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
 toParsec :: (a -> String) -> Either a b -> Parsec c u b
 toParsec f = either (fail . f) return
 
+
+{- Custom combinators ------------------------------------------------}
+
+notFollowedBy' :: (Stream s m t, Show a) => ParsecT s u m a -> String -> ParsecT s u m ()
+notFollowedBy' p msg = try $ (try p >> unexpected msg) <|> return ()
+
+sepBy1' :: (Stream s m t) => ParsecT s u m a -> ParsecT s u m String -> ParsecT s u m (EqnSeq a)
+sepBy1' p sep = do
+    x <- p
+    xs <- many ((,) <$> sep <*> p)
+    return $ eqnSeqFromList x xs
+
+
+{- Parser ------------------------------------------------------------}
 eol :: Parsec [Char] u ()
 eol = do
     _ <- try (string "\n\r") <|> try (string "\r\n") <|> string "\n" <|> string "\r" -- <|> (eof >> return "")
@@ -64,7 +78,7 @@ eol = do
     return ()
 
 lineBreak :: Parsec [Char] u ()
-lineBreak = eol >> manySpacesOrComment
+lineBreak = (eof <|> eol <|> commentParser) >> manySpacesOrComment
 
 idParser :: Parsec [Char] u String
 idParser = idP <?> "Id"
@@ -169,15 +183,15 @@ type PropParserMode = [String] -> String -> Err RawTerm
 
 propParser :: PropParserMode -> Parsec [Char] Env RawProp
 propParser mode = do
-    s <- trim <$> toEol1
+    s <- trim <$> toEol1 <?> "expression"
     env <- getState
     let prop = errCtxtStr "Failed to parse expression" $
             iparseProp (mode $ constants env) s
     toParsec show prop
 
 termParser :: PropParserMode -> Parsec [Char] Env RawTerm
-termParser mode = do
-    s <- trim <$> toEol1
+termParser mode = flip label "term" $ do
+    s <- trim <$> toEol1 <?> "expression"
     env <- getState
     let term = errCtxtStr "Failed to parse expression" $
             iparseTerm (mode $ constants env) s
@@ -237,10 +251,12 @@ toEol = manyTill anyChar (eof <|> eol <|> commentParser)
 
 toEol1 :: Parsec [Char] u String
 toEol1 = do
-    cs <- toEol
-    case cs of
-        [] -> unexpected "missing text before eol or comment"
-        _ -> return cs
+    notFollowedBy' end "end of line or comment"
+    x <- anyChar
+    xs <- manyTill anyChar end
+    return (x : xs)
+  where
+    end = eof <|> eol <|> commentParser
 
 byRuleParser :: Parsec [Char] u String
 byRuleParser = do
@@ -258,11 +274,6 @@ equationsParser = do
     equation = termParser defaultToFree <* manySpacesOrComment
     rule = byRuleParser <* string symPropEq <* lineSpaces
     equations = sepBy1' equation rule
-
-    sepBy1' p sep = do
-        x <- p
-        xs <- many ((,) <$> sep <*> p)
-        return $ eqnSeqFromList x xs
 
 toShowParser :: Parsec [Char] Env RawProp
 toShowParser = do
