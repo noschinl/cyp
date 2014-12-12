@@ -44,5 +44,5 @@ debug = id
 renderSrcExtsFail :: String -> ParseResult a -> Doc
 renderSrcExtsFail _ (ParseOk _) = mempty
 renderSrcExtsFail typ (ParseFailed (SrcLoc _ _ col) msg) =
-    (text "Failed to parse" <+> text typ <+> text "expression at position" <+> int col <> colon)
+    (text "Failed to parse" <+> text typ <+> text "at position" <+> int col <> colon)
     `indent` text msg
