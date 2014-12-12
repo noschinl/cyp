@@ -84,11 +84,10 @@ idParser :: Parsec [Char] u String
 idParser = idP <?> "Id"
   where
     idP = do
-        c <- lower
+        c <- letter
         cs <- many (char '_' <|> alphaNum)
         lineSpaces
         return (c:cs)
-
 
 commentParser :: Parsec [Char] u ()
 commentParser = p <?> "comment"
@@ -304,7 +303,7 @@ caseParser = do
         manySpacesOrComment
         return assm
     assmP = do
-        (name, prop) <- namedPropParser defaultToFree (many alphaNum)
+        (name, prop) <- namedPropParser defaultToFree idParser
         return $ Named (if name == "" then "assumption" else name) prop
 
 
