@@ -12,7 +12,7 @@ module Test.Info2.Cyp.Parser
     )
 where
 
-import Control.Applicative ((<$>), (<*))
+import Control.Applicative ((<$>), (<*), (<*>))
 import Data.Char
 import Data.Maybe
 import Data.Traversable (traverse)
@@ -125,6 +125,7 @@ funParser = do
 equationProofParser :: Parsec [Char] Env ParseProof
 equationProofParser = do
     keyword "Proof"
+    manySpacesOrComment
     eqns <- equationsParser
     manySpacesOrComment
     keywordQED
@@ -249,30 +250,25 @@ toEol1 = do
 
 byRuleParser :: Parsec [Char] u String
 byRuleParser = do
-    char '(' >> lineSpaces
-    keyword "by"
+    try (char '(' >>  lineSpaces >> keyword "by")
     cs <- trim <$> manyTill (noneOf "\r\n") (char ')')
     lineSpaces
     return cs
 
 equationsParser :: Parsec [Char] Env (EqnSeqq RawTerm)
 equationsParser = do
-    eq1 <- equations'
-    eq2 <- optionMaybe (try equations')
+    eq1 <- equations
+    eq2 <- optionMaybe (notFollowedBy keywordQED >> equations)
     return $ EqnSeqq eq1 eq2
   where
-    equations' = do
-        spaces
-        eq <- termParser defaultToFree
-        eqs <- many1 (try eqnStep)
-        return $ eqnSeqFromList eq eqs
-    eqnStep = do
-        manySpacesOrComment
-        rule <- byRuleParser
-        string symPropEq
-        lineSpaces
-        eq <- termParser defaultToFree
-        return (rule, eq)
+    equation = termParser defaultToFree <* manySpacesOrComment
+    rule = byRuleParser <* string symPropEq <* lineSpaces
+    equations = sepBy1' equation rule
+
+    sepBy1' p sep = do
+        x <- p
+        xs <- many ((,) <$> sep <*> p)
+        return $ eqnSeqFromList x xs
 
 toShowParser :: Parsec [Char] Env RawProp
 toShowParser = do
