@@ -43,7 +43,6 @@ where
 
 import Control.Monad ((>=>), liftM2, when)
 import Data.List (find, nub)
-import Data.Traversable (traverse)
 import qualified Language.Haskell.Exts.Parser as P
 import Language.Haskell.Exts.Fixity (Fixity (..), baseFixities)
 import qualified Language.Haskell.Exts.Syntax as Exts
@@ -239,8 +238,7 @@ translateExp _ e = errStr $ "Unsupported expression syntax used: " ++ show e
 
 translatePat :: Exts.Pat -> Err RawTerm
 translatePat (Exts.PVar v) = Right $ Schematic $ translateName v
-translatePat (Exts.PLit l) = Right $ Literal l
--- PNeg?
+translatePat (Exts.PLit Exts.Signless l) = Right $ Literal l
 translatePat (Exts.PNPlusK _ _) = errStr "n+k patterns are not supported"
 translatePat (Exts.PInfixApp p1 qn p2) =
     (return . Const $ translateQName qn) `mApp` translatePat p1 `mApp` translatePat p2

@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 module Test.Info2.Cyp (
   proof
 , proofFile
@@ -9,7 +11,6 @@ import Data.Foldable (for_)
 import Data.List
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import Data.Traversable (traverse)
 import qualified Text.Parsec as Parsec
 import Text.PrettyPrint (colon, comma, fsep, punctuate, quotes, text, vcat, (<>), (<+>), ($+$))
 

@@ -6,7 +6,6 @@ module Test.Info2.Cyp.Tasty (
 , findTests
 ) where
 
-import Control.Applicative ((<$>))
 import Data.List
 import Data.Tagged (Tagged(..))
 import Data.Typeable (Typeable)
