@@ -1,0 +1,24 @@
+Lemma: not . not .=. id
+Proof by extensionality with x
+  To show: (not . not) x .=. id x
+  Proof by induction on Bool x
+    Case False
+      To show: (not . not) False .=. id False
+      Proof
+            (not . not) False
+	(by def .) .=. not (not False)
+	(by def not) .=. not True
+	(by def not) .=. False
+	(by def id) .=. id False
+      QED
+    Case True
+      To show: (not . not) True .=. id True
+      Proof
+            (not . not) True
+	(by def .) .=. not (not True)
+	(by def not) .=. not False
+	(by def not) .=. True
+	(by def id) .=. id True
+      QED
+  QED
+QED

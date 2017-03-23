@@ -1,0 +1,6 @@
+data Bool = False | True
+not False = True
+not True = False
+id x = x
+(f . g) x = f (g x)
+goal not . not .=. id
