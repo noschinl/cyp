@@ -1,6 +1,8 @@
 cyp
 ===
 
+[![Build Status](https://travis-ci.org/noschinl/cyp.svg?branch=master)](https://travis-ci.org/noschinl/cyp)
+
 cyp (short for "Check Your Proof") verifies proofs about Haskell-like programs. It is designed as an teaching aid for undergraduate courses in functional programming. 
 
 The implemented logic is untyped higher-order equational logic, but without lambda expressions. In addition, structural induction over datatypes is supported.
