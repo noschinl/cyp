@@ -1,10 +1,6 @@
 module Test.Info2.Cyp.Types where
 
-import Control.Applicative
-import Data.Foldable
 import qualified Data.Map.Strict as M
-import Data.Monoid
-import Data.Traversable
 
 import Test.Info2.Cyp.Term
 
