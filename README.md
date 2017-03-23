@@ -20,14 +20,18 @@ Getting started
 
 Extract the program to some directory and run
 
-    cabal configure
-    cabal build
+    $ cabal update
+    $ cabal sandbox init
+    $ cabal install --only-dependencies --enable-tests
+    $ cabal build
 
 This produces a binary `cyp` in the `dist/build/cyp` folder. You can then check a proof by running
 
     cyp <background.cthy> <proof.cprf>
 
 where `<background.cthy>` defines the program and available lemmas and `<proof.cprf>` contains the proof to be checked.
+
+You may also use Stack to build the tool.
 
 The source code for cyp also contains some example theories and proofs (look for the files in `test-data/pos`).
 
