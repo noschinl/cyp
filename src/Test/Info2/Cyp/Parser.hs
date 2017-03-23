@@ -19,6 +19,7 @@ import Data.Traversable (traverse)
 import Text.Parsec as Parsec
 import qualified Language.Haskell.Exts.Parser as P
 import qualified Language.Haskell.Exts.Syntax as Exts
+import Language.Haskell.Exts.SrcLoc (SrcSpanInfo)
 import Text.PrettyPrint (quotes, text, (<+>))
 
 import Test.Info2.Cyp.Env
@@ -372,7 +373,7 @@ readFunc syms pds = do
     return (props, syms')
   where
 
-    declToProp :: [String] -> (String, [Exts.Pat], Exts.Exp) -> Err (Named Prop)
+    declToProp :: [String] -> (String, [Exts.Pat SrcSpanInfo], Exts.Exp SrcSpanInfo) -> Err (Named Prop)
     declToProp consts (funSym, pats, rawRhs) = do
         tPat <- traverse translatePat pats
         rhs <- translateExp tv rawRhs
@@ -384,19 +385,21 @@ readFunc syms pds = do
              | s `elem` consts = return $ Const s
              | otherwise = errStr $ "Unbound variable '" ++ s ++ "' not allowed on rhs"
 
-    collectPVars :: Exts.Pat -> [String]
-    collectPVars (Exts.PVar v) = [translateName v]
-    collectPVars (Exts.PInfixApp p1 _ p2) = collectPVars p1 ++ collectPVars p2
-    collectPVars (Exts.PApp _ ps) = concatMap collectPVars ps
-    collectPVars (Exts.PList ps) = concatMap collectPVars ps
-    collectPVars (Exts.PParen p) = collectPVars p
+    collectPVars :: Exts.Pat l -> [String]
+    collectPVars (Exts.PVar _ v) = [translateName v]
+    collectPVars (Exts.PInfixApp _ p1 _ p2) = collectPVars p1 ++ collectPVars p2
+    collectPVars (Exts.PApp _ _ ps) = concatMap collectPVars ps
+    collectPVars (Exts.PList _ ps) = concatMap collectPVars ps
+    collectPVars (Exts.PParen _ p) = collectPVars p
     collectPVars _ = []
 
-    parseFunc :: ParseDeclTree -> Maybe (Err (String, [Exts.Pat], Exts.Exp))
+    parseFunc :: ParseDeclTree -> Maybe (Err (String, [Exts.Pat SrcSpanInfo], Exts.Exp SrcSpanInfo))
     parseFunc (FunDef s) = Just $ errCtxt (text "Parsing function definition" <+> quotes (text s)) $
         case P.parseDecl s of
-            P.ParseOk (Exts.FunBind [Exts.Match _ name pat _ (Exts.UnGuardedRhs rhs) Nothing])
+            P.ParseOk (Exts.FunBind _ [Exts.Match _ name pat (Exts.UnGuardedRhs _ rhs) Nothing])
                 -> Right (translateName name, pat, rhs)
+            P.ParseOk (Exts.FunBind _ [Exts.InfixMatch _ pat name pats (Exts.UnGuardedRhs _ rhs) Nothing])
+                -> Right (translateName name, pat : pats, rhs)
             P.ParseOk _ -> errStr "Invalid function definition."
             f@(P.ParseFailed _ _ ) -> err $ renderSrcExtsFail "declaration" f
     parseFunc _ = Nothing
