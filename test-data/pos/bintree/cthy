@@ -1,0 +1,33 @@
+data Tree a = Leaf | Branch (Tree a) a (Tree a)
+
+-- see https://github.com/noschinl/cyp/issues/10
+-- mirror :: Tree a -> Tree a
+-- mirror t = case t of
+--   Leaf -> Leaf
+--   Branch l k r -> Branch (mirror r) k (mirror l)
+mirror Leaf = Leaf
+mirror (Branch l k r) = Branch (mirror r) k (mirror l)
+
+data List a = Nil | Cons a (List a)
+
+-- inorder :: Tree a -> List a
+-- inorder t = case t of
+--   Leaf -> Nil
+--   Branch l k r -> append (inorder l) (Cons k (inorder r))
+inorder Leaf = Nil
+inorder (Branch l k r) = append (inorder l) (Cons k (inorder r))
+
+-- see  https://github.com/noschinl/cyp/issues/12
+append xs ys = Nil -- wrong, but not used
+reverse xs   = Nil -- wrong, but not used
+
+(f . g) x = f (g x)
+
+axiom append_assoc:  append xs (append ys zs) .=. append (append xs ys) zs
+axiom cons_append: Cons x ys .=. append (Cons x Nil) ys
+
+axiom rev_nil: reverse Nil .=. Nil
+axiom rev_unit: reverse (Cons x Nil) .=. Cons x Nil
+axiom rev_append: reverse (append xs ys) .=. append (reverse ys) (reverse xs)
+
+goal inorder . mirror .=. reverse . inorder

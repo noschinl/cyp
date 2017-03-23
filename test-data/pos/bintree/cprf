@@ -1,0 +1,42 @@
+Lemma: inorder . mirror .=. reverse . inorder
+
+Proof by extensionality with t
+  To show: (inorder . mirror) t .=. (reverse . inorder) t
+  Proof by induction on Tree t
+    Case Leaf
+      To show: (inorder . mirror) Leaf .=. (reverse . inorder) Leaf
+      Proof
+          (inorder . mirror) Leaf
+	(by def .) .=. inorder (mirror Leaf)
+	(by def mirror) .=. inorder Leaf
+	(by def inorder) .=. Nil
+	(by rev_nil) .=. reverse Nil
+	(by def inorder) .=. reverse (inorder Leaf)
+	(by def .) .=. (reverse . inorder) Leaf
+      QED
+    Case Branch l k r
+      To show: (inorder . mirror) (Branch l k r) .=. (reverse . inorder) (Branch l k r)
+      IH: (inorder . mirror) l .=. (reverse . inorder) l
+      IH: (inorder . mirror) r .=. (reverse . inorder) r
+      Proof
+                             (inorder . mirror) (Branch l k r)
+	  (by def .) .=. inorder (mirror (Branch l k r))
+	  (by def mirror) .=. inorder (Branch (mirror r) k (mirror l))
+	  (by def inorder) .=. append (inorder (mirror r)) (Cons k (inorder (mirror l)))
+	  (by def .) .=. append ((inorder . mirror) r) (Cons k (inorder (mirror l)))
+	  (by IH) .=. append ((reverse . inorder) r)  (Cons k (inorder (mirror l)))
+	  (by def .) .=. append ((reverse . inorder) r)  (Cons k ((inorder . mirror) l))
+	  (by IH) .=. append ((reverse . inorder) r)  (Cons k ((reverse . inorder) l))
+	  (by def .) .=. append (reverse (inorder r))  (Cons k ((reverse . inorder) l))
+ 	  (by def .) .=. append (reverse (inorder r))  (Cons k (reverse ( inorder l)))
+	  (by cons_append) .=. append (reverse (inorder r))  (append (Cons k Nil) (reverse ( inorder l)))
+	  (by append_assoc) .=. append (append (reverse (inorder r)) (Cons k Nil)) (reverse ( inorder l))
+	  (by rev_unit) .=. append (append (reverse (inorder r)) (reverse (Cons k Nil))) (reverse ( inorder l))
+	  (by rev_append) .=. append (reverse (append (Cons k Nil) (inorder r))) (reverse ( inorder l))
+	  (by cons_append) .=. append (reverse (Cons k (inorder r))) (reverse ( inorder l))
+	  (by rev_append) .=. reverse ( append (inorder l) (Cons k (inorder r)))
+          (by def inorder) .=. reverse ( inorder (Branch l k r))
+	  (by def .) .=. (reverse . inorder) (Branch l k r)
+      QED
+  QED
+QED
