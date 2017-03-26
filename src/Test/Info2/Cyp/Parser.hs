@@ -35,7 +35,7 @@ data ParseDeclTree
     | Goal String
     deriving Show
 
-data ParseLemma = ParseLemma String RawProp ParseProof -- Proposition, Proof
+data ParseLemma = ParseLemma String RawProp ParseProof -- ^ Proposition, Proof
 
 data ParseCase = ParseCase
     { pcCons :: RawTerm
@@ -45,10 +45,10 @@ data ParseCase = ParseCase
     }
 
 data ParseProof
-    = ParseInduction String RawTerm [ParseCase] -- data type, induction variable, cases
+    = ParseInduction String RawTerm [ParseCase] -- ^ data type, induction variable, cases
     | ParseEquation (EqnSeqq RawTerm)
-    | ParseExt RawTerm RawProp ParseProof -- fixed variable, to show, subproof
-    | ParseCases String RawTerm [ParseCase] -- data type, term, cases
+    | ParseExt RawTerm RawProp ParseProof -- ^ fixed variable, to show, subproof
+    | ParseCases String RawTerm [ParseCase] -- ^ data type, term, cases
     | ParseCheating
 
 
