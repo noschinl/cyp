@@ -17,9 +17,11 @@ data List a = Nil | Cons a (List a)
 inorder Leaf = Nil
 inorder (Branch l k r) = append (inorder l) (Cons k (inorder r))
 
--- see  https://github.com/noschinl/cyp/issues/12
-append xs ys = Nil -- wrong, but not used
-reverse xs   = Nil -- wrong, but not used
+-- see https://github.com/noschinl/cyp/issues/12
+undefined = undefined
+
+append = undefined
+reverse = undefined
 
 (f . g) x = f (g x)
 

@@ -400,7 +400,9 @@ readFunc syms pds = do
                 -> Right (translateName name, pat, rhs)
             P.ParseOk (Exts.FunBind _ [Exts.InfixMatch _ pat name pats (Exts.UnGuardedRhs _ rhs) Nothing])
                 -> Right (translateName name, pat : pats, rhs)
-            P.ParseOk _ -> errStr "Invalid function definition."
+            P.ParseOk (Exts.PatBind _ (Exts.PVar _ name) (Exts.UnGuardedRhs _ rhs) Nothing)
+                -> Right (translateName name, [], rhs)
+            o@(P.ParseOk _) -> errStr $ unlines [ "Invalid function definition", show o ]
             f@(P.ParseFailed _ _ ) -> err $ renderSrcExtsFail "declaration" f
     parseFunc _ = Nothing
 
