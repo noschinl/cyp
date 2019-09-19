@@ -60,7 +60,7 @@ checkProofs env (l : ls) = do
     checkProofs env' ls
 
 checkLemma :: ParseLemma -> Env -> Err (Prop, Env)
-checkLemma (ParseLemma name rprop proof) env = errCtxt (text "Lemma" <+> text name <> colon <+> unparseRawProp rprop) $ do
+checkLemma (ParseLemma name rprop proof) env = errCtxt (text "Lemma" <+> text name Text.PrettyPrint.<> colon <+> unparseRawProp rprop) $ do
     let (prop, env') = declareProp rprop env
     Prop _ _ <- checkProof prop proof env'
     let proved = generalizeEnvProp env prop
@@ -214,7 +214,7 @@ checkProof prop (ParseCases dtRaw onRaw casesRaw) env = errCtxt ctxtMsg $ do
 validDatatype :: String -> Env -> Err DataType
 validDatatype name env = case find (\dt -> dtName dt == name) (datatypes env) of
     Nothing -> err $ fsep $
-        [ text "Invalid datatype" <+> quotes (text name) <> text "."
+        [ text "Invalid datatype" <+> quotes (text name) Text.PrettyPrint.<> text "."
         , text "Expected one of:" ]
         ++ punctuate comma (map (quotes . text . dtName) $ datatypes env)
     Just dt -> Right dt
@@ -240,7 +240,7 @@ validConsCase t (DataType _ conss) = errCtxt invCaseMsg $ do
         Just x -> return x
     findCons _ = errStr "Outermost symbol is not a constant"
 
-    invCaseMsg = text "Invalid case" <+> quotes (unparseTerm t) <> comma
+    invCaseMsg = text "Invalid case" <+> quotes (unparseTerm t) Text.PrettyPrint.<> comma
 
 validEqnSeq :: [Named Prop] -> EqnSeq Term -> Err Prop
 validEqnSeq _ (Single t) = return (Prop t t)
@@ -250,7 +250,7 @@ validEqnSeq rules (Step t1 rule es)
         return (Prop t1 tLast)
     | otherwise = errCtxtStr ("Invalid proof step" ++ noRuleMsg) $ err $
         unparseTerm t1 $+$ text ("(by " ++ rule ++ ") " ++ symPropEq) <+> unparseTerm t2
-        $+$ debug (text rule <> text ":" <+> vcat (map (unparseProp . namedVal) $ filter (\x -> namedName x == rule) rules))
+        $+$ debug (text rule Text.PrettyPrint.<> text ":" <+> vcat (map (unparseProp . namedVal) $ filter (\x -> namedName x == rule) rules))
   where
     (t2, _) = eqnSeqEnds es
     noRuleMsg

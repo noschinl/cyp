@@ -49,15 +49,19 @@ where `<lhs>` and `<rhs>` are arbitrary Haskell expressions. cyp supports plain 
 
 keyword and followed by one or two lists of equations:
 
-      <term a1>
-      .=. <term a2>
-      .=. <...>
-      .=. <term an>
+                     <term a1>
+  (by <reason>)  .=. <term a2>
+                  .
+                  .
+                  .
+  (by <reason>)  .=. <term an>
 
-      <term b1>
-      .=. <term b1>
-      .=. <...>
-      .=. <term bn>
+                     <term b1>
+  (by <reason>)  .=. <term b2>
+                  .
+                  .
+                  .
+  (by <reason>)  .=. <term bn>
 
 Each term must be given on a separate line and be indented by at least one space. If two lists are given, they are handled as if the second list was reversed and appended to the first. An equational proof is accepted if
 

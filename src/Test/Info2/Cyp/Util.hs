@@ -13,7 +13,7 @@ where
 
 import Data.Monoid (mempty)
 import Language.Haskell.Exts (SrcLoc (..), ParseResult (..))
-import Text.PrettyPrint (Doc, (<>), (<+>), ($+$), colon, empty, int, nest, text)
+import Text.PrettyPrint (Doc, (<+>), (<>), ($+$), colon, empty, int, nest, text)
 
 type Err = Either Doc
 
@@ -44,5 +44,5 @@ debug = id
 renderSrcExtsFail :: String -> ParseResult a -> Doc
 renderSrcExtsFail _ (ParseOk _) = mempty
 renderSrcExtsFail typ (ParseFailed (SrcLoc _ _ col) msg) =
-    (text "Failed to parse" <+> text typ <+> text "at position" <+> int col <> colon)
+    (text "Failed to parse" <+> text typ <+> text "at position" <+> int col Text.PrettyPrint.<> colon)
     `indent` text msg
