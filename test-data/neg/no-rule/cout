@@ -3,6 +3,6 @@ Lemma : length (xs ++ ys) .=. length xs + length ys
         Case 'x : xs'
             Equational proof
                 Invalid proof step in line 31 (no rules with name "cheating")
-                    length ((x~0 : xs~1) ++ ys~0)
-                    (by cheating) .=. length (x~0 : xs~1 ++ ys~0)
+                    1 + length xs~1 + length ys~0
+                    (by cheating) .=. 1 + (length xs~1 + length ys~0)
                     cheating:
