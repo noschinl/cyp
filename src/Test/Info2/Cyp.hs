@@ -244,11 +244,11 @@ validConsCase t (DataType _ conss) = errCtxt invCaseMsg $ do
 
 validEqnSeq :: [Named Prop] -> EqnSeq Term -> Err Prop
 validEqnSeq _ (Single t) = return (Prop t t)
-validEqnSeq rules (Step t1 rule es)
+validEqnSeq rules (Step spos t1 rule es)
     | rewritesToWith rule rules t1 t2 = do
         Prop _ tLast <- validEqnSeq rules es
         return (Prop t1 tLast)
-    | otherwise = errCtxtStr ("Invalid proof step" ++ noRuleMsg) $ err $
+    | otherwise = errCtxtStr ("Invalid proof step in line " ++ show (Parsec.sourceLine spos) ++ noRuleMsg) $ err $
         unparseTerm t1 $+$ text ("(by " ++ rule ++ ") " ++ symPropEq) <+> unparseTerm t2
         $+$ debug (text rule Text.PrettyPrint.<> text ":" <+> vcat (map (unparseProp . namedVal) $ filter (\x -> namedName x == rule) rules))
   where

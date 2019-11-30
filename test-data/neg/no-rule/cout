@@ -2,7 +2,7 @@ Lemma : length (xs ++ ys) .=. length xs + length ys
     Induction over variable 'xs' of type 'List'
         Case 'x : xs'
             Equational proof
-                Invalid proof step in line 25 (no rules with name "cheating")
+                Invalid proof step in line 31 (no rules with name "cheating")
                     length ((x~0 : xs~1) ++ ys~0)
                     (by cheating) .=. length (x~0 : xs~1 ++ ys~0)
                     cheating:

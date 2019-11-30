@@ -64,10 +64,10 @@ toParsec f = either (fail . f) return
 notFollowedBy' :: (Stream s m t, Show a) => ParsecT s u m a -> String -> ParsecT s u m ()
 notFollowedBy' p msg = try $ (try p >> unexpected msg) <|> return ()
 
-sepBy1' :: (Stream s m t) => ParsecT s u m a -> ParsecT s u m String -> ParsecT s u m (EqnSeq a)
-sepBy1' p sep = do
+sepBy1' :: (Stream s m t) => ParsecT s u m Parsec.SourcePos -> ParsecT s u m a -> ParsecT s u m String -> ParsecT s u m (EqnSeq a)
+sepBy1' sposP p sep = do
     x <- p
-    xs <- many ((,) <$> sep <*> p)
+    xs <- many ((,,) <$> sposP <*> sep <*> p)
     return $ eqnSeqFromList x xs
 
 
@@ -273,7 +273,7 @@ equationsParser = do
   where
     equation = termParser defaultToFree <* manySpacesOrComment
     rule = byRuleParser <* string symPropEq <* lineSpaces
-    equations = sepBy1' equation rule
+    equations = sepBy1' Parsec.getPosition equation rule
 
 toShowParser :: Parsec [Char] Env RawProp
 toShowParser = do
