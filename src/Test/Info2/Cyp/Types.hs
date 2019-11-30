@@ -1,6 +1,6 @@
 module Test.Info2.Cyp.Types where
 
-import Text.Parsec (SourcePos)
+import qualified Text.Parsec as Parsec
 
 import qualified Data.Map.Strict as M
 
@@ -28,7 +28,7 @@ data TConsArg = TNRec | TRec deriving (Show,Eq)
 
 {- Equation sequences ------------------------------------------------}
 
-data EqnSeq a = Single a | Step SourcePos a String (EqnSeq a) deriving Show
+data EqnSeq a = Single a | Step Parsec.SourcePos a String (EqnSeq a) deriving Show
 data EqnSeqq a = EqnSeqq (EqnSeq a) (Maybe (EqnSeq a)) deriving Show
 
 instance Foldable EqnSeq where
@@ -55,7 +55,7 @@ instance Traversable EqnSeqq where
     traverse f (EqnSeqq x (Just y)) = EqnSeqq <$> (traverse f x) <*> (Just <$> traverse f y)
 
 
-eqnSeqFromList :: a -> [(SourcePos, String,a)] -> EqnSeq a
+eqnSeqFromList :: a -> [(Parsec.SourcePos, String,a)] -> EqnSeq a
 eqnSeqFromList a [] = Single a
 eqnSeqFromList a ((spos, b', a') : bas) = Step spos a b' (eqnSeqFromList a' bas)
 
