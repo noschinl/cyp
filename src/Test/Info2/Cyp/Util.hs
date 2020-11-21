@@ -11,7 +11,6 @@ module Test.Info2.Cyp.Util
     )
 where
 
-import Data.Monoid (mempty)
 import Language.Haskell.Exts (SrcLoc (..), ParseResult (..))
 import Text.PrettyPrint (Doc, (<+>), (<>), ($+$), colon, empty, int, nest, text)
 

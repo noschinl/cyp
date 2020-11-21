@@ -13,10 +13,8 @@ module Test.Info2.Cyp.Parser
     )
 where
 
-import Control.Applicative ((<$>), (<*), (<*>))
 import Data.Char
 import Data.Maybe
-import Data.Traversable (traverse)
 import Text.Parsec as Parsec
 import qualified Language.Haskell.Exts.Parser as P
 import qualified Language.Haskell.Exts.Syntax as Exts
