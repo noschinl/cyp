@@ -1,0 +1,14 @@
+on: [push]
+name: test
+jobs:
+  runhaskell:
+    name: Run test proofs 
+    runs-ons: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-haskell@v1.1
+        with:
+          ghc-version: '8.8.4'
+          enable-stack: true
+          stack-version: 'latest'
+      - run: stack test
