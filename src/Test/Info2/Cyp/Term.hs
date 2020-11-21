@@ -270,6 +270,7 @@ translateQName (Special _ (TupleCon _ b n)) = case b of
     Boxed -> "(#" ++ replicate n ',' ++ "#)"
     Unboxed -> "(" ++ replicate n ',' ++ ")"
 translateQName (Special _ (UnboxedSingleCon _)) = "(# #)"
+translateQName (Special _ (ExprHole _)) = "_"
 
 translateName :: Name l -> String
 translateName (Ident _ s) = s
