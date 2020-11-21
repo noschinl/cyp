@@ -11,4 +11,5 @@ jobs:
           ghc-version: '8.8.4'
           enable-stack: true
           stack-version: 'latest'
+      - run: stack build
       - run: stack test
