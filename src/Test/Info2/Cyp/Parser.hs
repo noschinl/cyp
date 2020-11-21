@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances #-}
 module Test.Info2.Cyp.Parser
     ( ParseLemma (..)
     , ParseCase (..)
@@ -20,7 +21,7 @@ import Text.Parsec as Parsec
 import qualified Language.Haskell.Exts.Parser as P
 import qualified Language.Haskell.Exts.Syntax as Exts
 import Language.Haskell.Exts.SrcLoc (SrcSpanInfo)
-import Text.PrettyPrint (quotes, text, (<+>))
+import Text.PrettyPrint (quotes, text, (<+>), Doc)
 
 import Test.Info2.Cyp.Env
 import Test.Info2.Cyp.Term
@@ -311,6 +312,9 @@ caseParser = do
 manySpacesOrComment :: Parsec [Char] u ()
 manySpacesOrComment = skipMany $ (space >> return ()) <|> commentParser
 
+
+instance MonadFail (Either Doc) where
+    fail = Left . text
 
 readDataType :: [ParseDeclTree] -> Err [DataType]
 readDataType = sequence . mapMaybe parseDataType
