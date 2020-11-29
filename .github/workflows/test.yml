@@ -4,12 +4,32 @@ jobs:
   runhaskell:
     name: Run test proofs 
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-haskell@v1.1.4
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Cache stack global package db
+        id:   stack-global
+        uses: actions/cache@v2
+        with:
+          path: ~/.stack
+          key: ${{ runner.os }}-stack-global-${{ hashFiles('**.yaml') }}
+          restore-keys: |
+               ${{ runner.os }}-stack-global
+      - name: Cache .stack-work
+        uses: actions/cache@v2
+        with:
+          path: .stack-work
+          key: ${{ runner.os }}-stack-work-${{ hashFiles('**.yaml') }}
+          restore-keys: |
+               ${{ runner.os }}-stack-work
+
+      - name: Build and test
+        uses: actions/setup-haskell@v1.1.4
         with:
           ghc-version: '8.8.4'
           enable-stack: true
           stack-version: 'latest'
-      - run: stack build
-      - run: stack test
+        run: |
+          stack build
+          stack test
