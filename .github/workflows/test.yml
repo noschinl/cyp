@@ -6,9 +6,9 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout
+      - name: checkout
         uses: actions/checkout@v2
-      - name: Cache stack global package db
+      - name: cache stack global package db
         id:   stack-global
         uses: actions/cache@v2
         with:
@@ -16,7 +16,7 @@ jobs:
           key: ${{ runner.os }}-stack-global-${{ hashFiles('**.yaml') }}
           restore-keys: |
                ${{ runner.os }}-stack-global
-      - name: Cache .stack-work
+      - name: cache .stack-work
         uses: actions/cache@v2
         with:
           path: .stack-work
@@ -24,7 +24,7 @@ jobs:
           restore-keys: |
                ${{ runner.os }}-stack-work
 
-      - name: Build and test
+      - name: setup stack 
         uses: actions/setup-haskell@v1.1.4
         with:
           ghc-version: '8.8.4'
