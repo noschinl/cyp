@@ -42,12 +42,12 @@ processMasterFile :: FilePath -> String -> Err Env
 processMasterFile path content = errCtxtStr "Parsing background theory" $ do
     mResult <- eitherToErr $ Parsec.parse cthyParser path content
     dts <- readDataType mResult
-    syms <- fmap (defaultConsts ++) $ readSym mResult
+    syms <- (defaultConsts ++) <$> readSym mResult
     (fundefs, consts) <- readFunc syms mResult
     axs <- readAxiom consts mResult
     gls <- readGoal consts mResult
     return $ Env { datatypes = dts, axioms = fundefs ++ axs,
-        constants = nub $ consts, fixes = M.empty, goals = gls }
+        constants = nub consts, fixes = M.empty, goals = gls }
 
 processProofFile :: Env -> FilePath -> String -> Err [ParseLemma]
 processProofFile env path content = errCtxtStr "Parsing proof" $
@@ -156,11 +156,11 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
     checkPcHyps over recVars rpcHyps = do
         pcHyps <- traverse (traverse (state . declareProp)) rpcHyps
         let indHyps = map (substFreeProp prop . instOver) recVars
-        lift $ for_ pcHyps $ \(Named name prop) -> case prop `elem` indHyps of
-            True -> return ()
-            False -> err $
+        lift $ for_ pcHyps $ \(Named name prop) ->
+            if prop `elem` indHyps then return ()
+            else err $
                 text ("Induction hypothesis " ++ name ++ " is not valid")
-                `indent` (debug (unparseProp prop))
+                `indent` debug (unparseProp prop)
         return $ map (fmap $ generalizeExceptProp recVars) pcHyps
       where
         instOver n = [(over, Free n)]
@@ -223,9 +223,9 @@ validConsCase :: Term -> DataType -> Err (String, [(TConsArg, IdxName)])
 validConsCase t (DataType _ conss) = errCtxt invCaseMsg $ do
     (consName, consArgs) <- findCons cons
     argNames <- traverse argName args
-    when (not $ nub args == args) $
+    unless (nub args == args) $
         errStr "Constructor arguments must be distinct"
-    when (not $ length args == length consArgs) $
+    unless (length args == length consArgs) $
         errStr "Invalid number of arguments"
     return (consName, zip consArgs argNames)
   where
@@ -262,18 +262,17 @@ validEqnSeqq rules (EqnSeqq es1 Nothing) = validEqnSeq rules es1
 validEqnSeqq rules (EqnSeqq es1 (Just es2)) = do
     Prop th1 tl1 <- validEqnSeq rules es1
     Prop th2 tl2 <- validEqnSeq rules es2
-    case tl1 == tl2 of
-        True -> return (Prop th1 th2)
-        False -> errCtxtStr "Two equation chains don't fit together:" $
+    if tl1 == tl2 then return (Prop th1 th2)
+    else errCtxtStr "Two equation chains don't fit together:" $
             err $ unparseTerm tl1 $+$ text symPropEq $+$ unparseTerm tl2
 
 rewriteTop :: Term -> Prop -> Maybe Term
-rewriteTop t (Prop lhs rhs) = fmap (subst rhs) $ match t lhs []
+rewriteTop t (Prop lhs rhs) = subst rhs <$> match t lhs []
 
 rewrite :: Term -> Prop -> [Term]
 rewrite t@(Application f a) prop =
     maybeToList (rewriteTop t prop)
-    ++ map (\x -> Application x a) (rewrite f prop)
+    ++ map (`Application` a) (rewrite f prop)
     ++ map (Application f) (rewrite a prop)
 rewrite t prop = maybeToList $ rewriteTop t prop
 
@@ -282,5 +281,5 @@ rewritesTo rules l r = l == r || rewrites l r || rewrites r l
   where rewrites from to = any (\x -> isJust $ match to x []) $ concatMap (rewrite from) rules
 
 rewritesToWith :: String -> [Named Prop] -> Term -> Term -> Bool
-rewritesToWith name rules l r = rewritesTo (f rules) l r
+rewritesToWith name rules = rewritesTo (f rules)
   where f = map namedVal . filter (\x -> namedName x == name)

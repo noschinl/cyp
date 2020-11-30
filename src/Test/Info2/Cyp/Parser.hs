@@ -13,6 +13,7 @@ module Test.Info2.Cyp.Parser
     )
 where
 
+import Control.Monad
 import Data.Char
 import Data.Maybe
 import Text.Parsec as Parsec
@@ -99,16 +100,15 @@ commentParser = p <?> "comment"
         return ()
 
 cthyParser :: Parsec [Char] () [ParseDeclTree]
-cthyParser =
-    do result <- many cthyParsers
-       eof
-       return result
+cthyParser = do
+    result <- many cthyParsers
+    eof
+    return result
 
 cthyParsers :: Parsec [Char] () ParseDeclTree
-cthyParsers =
-    do manySpacesOrComment
-       result <- (goalParser <|> dataParser <|> axiomParser <|> symParser <|> try funParser)
-       return result
+cthyParsers = do
+    manySpacesOrComment
+    goalParser <|> dataParser <|> axiomParser <|> symParser <|> try funParser
 
 keywordToEolParser :: String -> (String -> a) -> Parsec [Char] () a
 keywordToEolParser s f =
@@ -308,7 +308,7 @@ caseParser = do
 
 
 manySpacesOrComment :: Parsec [Char] u ()
-manySpacesOrComment = skipMany $ (space >> return ()) <|> commentParser
+manySpacesOrComment = skipMany $ void space <|> commentParser
 
 
 instance MonadFail (Either Doc) where
@@ -337,8 +337,8 @@ readDataType = sequence . mapMaybe parseDataType
         return (name, args')
 
     parseDaconArg tycon term | term == tycon = return TRec
-    parseDaconArg _ (Application _ _) = errStr $ "Nested constructors (apart from direct recursion) are not allowed."
-    parseDaconArg _ (Literal _) = errStr $ "Literals not allowed in datatype declarations"
+    parseDaconArg _ (Application _ _) = errStr "Nested constructors (apart from direct recursion) are not allowed."
+    parseDaconArg _ (Literal _) = errStr "Literals not allowed in datatype declarations"
     parseDaconArg _ _ = return TNRec
 
 readAxiom :: [String] -> [ParseDeclTree] -> Err [Named Prop]
@@ -346,11 +346,11 @@ readAxiom consts = sequence . mapMaybe parseAxiom
   where
     parseAxiom (Axiom n s) = Just $ do
         prop <- iparseProp (defaultToFree consts) s
-        return $ Named n $ interpretProp declEnv $ generalizeExceptProp [] $ prop
+        return $ Named n $ interpretProp declEnv $ generalizeExceptProp [] prop
     parseAxiom _ = Nothing
 
 readGoal :: [String] -> [ParseDeclTree] -> Err [Prop]
-readGoal consts = sequence . map (fmap $ interpretProp declEnv)  . mapMaybe parseGoal
+readGoal consts = mapM (fmap $ interpretProp declEnv)  . mapMaybe parseGoal
   where
     parseGoal (Goal s) = Just $ iparseProp (defaultToFree consts) s
     parseGoal _ = Nothing
@@ -410,8 +410,8 @@ readFunc syms pds = do
 
 splitStringAt :: Eq a => [a] -> [a] -> [a] -> [[a]]
 splitStringAt _ [] h
-    | h == [] = []
-    | otherwise = h : []
+    | null h = []
+    | otherwise = [h]
 splitStringAt a (x:xs) h
     | x `elem` a = h : splitStringAt a xs []
     | otherwise = splitStringAt a xs (h++[x])

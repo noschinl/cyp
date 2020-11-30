@@ -165,10 +165,10 @@ matchProp :: Eq a => AbsProp a -> AbsProp a -> [(a, AbsTerm a)] -> Maybe [(a, Ab
 matchProp (Prop l r) (Prop l' r') = match l l' >=> match r r'
 
 substProp :: Eq a => AbsProp a -> [(a, AbsTerm a)] -> AbsProp a
-substProp p s = propMap (flip subst s) p
+substProp p s = propMap (`subst` s) p
 
 substFreeProp :: Eq a => AbsProp a -> [(a, AbsTerm a)] -> AbsProp a
-substFreeProp p s = propMap (flip substFree s) p
+substFreeProp p s = propMap (`substFree` s) p
 
 -- Generalizes a prop by turning Frees into Schematics.
 -- XXX: Result may not be as general as intended, as
@@ -240,16 +240,16 @@ translateExp _ e = errStr $ "Unsupported expression syntax used: " ++ show e
 translatePat :: Show l => Exts.Pat l -> Err RawTerm
 translatePat (Exts.PVar _ v) = Right $ Schematic $ translateName v
 translatePat (Exts.PLit _ (Exts.Signless _) l) = Right $ Literal $ void l
-translatePat (Exts.PNPlusK _ _ _) = errStr "n+k patterns are not supported"
+translatePat Exts.PNPlusK{} = errStr "n+k patterns are not supported"
 translatePat (Exts.PInfixApp _ p1 qn p2) =
     (return . Const $ translateQName qn) `mApp` translatePat p1 `mApp` translatePat p2
 translatePat (Exts.PApp _ qn ps) = do
     cs <- traverse translatePat ps
     return $ listComb (Const $ translateQName qn) cs
-translatePat (Exts.PTuple _ _ _) = errStr "tuple patterns are not supported"
+translatePat Exts.PTuple{} = errStr "tuple patterns are not supported"
 translatePat (Exts.PList _ ps) = foldr (\p cs -> Right (Const ":") `mApp` translatePat p `mApp` cs) (Right $ Const "[]") ps
 translatePat (Exts.PParen _ p) = translatePat p
-translatePat (Exts.PAsPat _ _ _) = errStr "as patterns are not supported"
+translatePat Exts.PAsPat{} = errStr "as patterns are not supported"
 translatePat (Exts.PWildCard _) = errStr "wildcard patterns are not supported"
 translatePat f = errStr $ "unsupported pattern type: " ++ show f
 
@@ -296,7 +296,7 @@ instance Ord Prio where
 data UnparseMode a = UnparseMode { unparseFree :: a -> String, unparseSchematic :: a -> String }
 
 upModeRaw :: UnparseMode String
-upModeRaw = UnparseMode { unparseFree = id, unparseSchematic = \x -> "?" ++ x }
+upModeRaw = UnparseMode { unparseFree = id, unparseSchematic = ("?" ++) }
 
 upModeIdx :: UnparseMode IdxName
 upModeIdx = UnparseMode
@@ -359,8 +359,8 @@ unparseAbsTermRaw mode (Application tl tr) = Unparse doc' fixity'
     doc' = case upApplied l of
         Applied0
             | upPrio r > upPrio l -> upDoc r <+> upDoc l
-            | upPrio l == upPrio r && assocsTo (AssocLeft ()) l r -> (upDoc r) <+> (upDoc l)
-            | otherwise -> close r <+> (upDoc l)
+            | upPrio l == upPrio r && assocsTo (AssocLeft ()) l r -> upDoc r <+> upDoc l
+            | otherwise -> close r <+> upDoc l
         Applied1
             | upPrio r > upPrio l -> upDoc l <+> upDoc r
             | upPrio l == upPrio r && assocsTo (AssocRight ()) l r -> upDoc l <+> upDoc r
