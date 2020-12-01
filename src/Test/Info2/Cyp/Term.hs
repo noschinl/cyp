@@ -7,6 +7,7 @@ module Test.Info2.Cyp.Term
     , Prop
     , RawProp
     , collectFrees
+    , collectSchematics
     , defaultConsts
     , defaultToFree
     , generalizeExcept
@@ -18,6 +19,8 @@ module Test.Info2.Cyp.Term
     , listComb
     , mApp
     , match
+    , propLhs
+    , propRhs
     , matchProp
     , propMap
     , stripComb
@@ -26,6 +29,7 @@ module Test.Info2.Cyp.Term
     , substFreeProp
     , substProp
     , symPropEq
+    , symIf
     , symUMinus
     , translateExp
     , translateName
@@ -125,7 +129,7 @@ generalizeExcept vs (Free v)
     | otherwise = Schematic v
 generalizeExcept _ t = t
 
-collectFrees :: Eq a => AbsTerm a -> [a]-> [a]
+collectFrees :: Eq a => AbsTerm a -> [a] -> [a]
 collectFrees t xs = nub $ collect t xs
   where
     collect (Application f a) xs = collect f $ collect a xs
@@ -137,6 +141,15 @@ collectFrees t xs = nub $ collect t xs
 isFree :: AbsTerm a -> Bool
 isFree (Free _) = True
 isFree _ = False
+
+collectSchematics :: Eq a => AbsTerm a -> [a] -> [a]
+collectSchematics t xs = nub $ collect t xs
+  where
+    collect (Application f a) xs = collect f $ collect a xs
+    collect (Const _) xs = xs
+    collect (Free _) xs = xs
+    collect (Literal _) xs = xs
+    collect (Schematic v) xs = v : xs
 
 isSchematic :: AbsTerm a -> Bool
 isSchematic (Schematic _) = True
@@ -157,6 +170,12 @@ symIf = ".if"
 
 
 {- Prop operations --------------------------------------------------}
+
+propLhs :: AbsProp a -> AbsTerm a
+propLhs (Prop lhs _) = lhs
+
+propRhs :: AbsProp a -> AbsTerm a
+propRhs (Prop _ rhs) = rhs
 
 propMap :: (AbsTerm a -> AbsTerm b) -> AbsProp a -> AbsProp b
 propMap f (Prop l r) = Prop (f l) (f r)

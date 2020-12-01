@@ -12,7 +12,7 @@ import Data.List
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Text.Parsec as Parsec
-import Text.PrettyPrint (colon, comma, fsep, punctuate, quotes, text, vcat, (<>), (<+>), ($+$))
+import Text.PrettyPrint (int, colon, comma, fsep, punctuate, quotes, text, vcat, (<>), (<+>), ($+$))
 
 import Test.Info2.Cyp.Env
 import Test.Info2.Cyp.Parser
@@ -74,6 +74,7 @@ checkProof prop (ParseEquation reqns) env = errCtxtStr "Equational proof" $ do
     when (prop /= proved) $ err $
         text "Proved proposition does not match goal:" `indent` unparseProp proved
     return proved
+    
 checkProof prop (ParseExt withRaw toShowRaw proof) env = errCtxt ctxtMsg $
     flip evalStateT env $ do
         with <- validateWith withRaw
@@ -101,6 +102,7 @@ checkProof prop (ParseExt withRaw toShowRaw proof) env = errCtxt ctxtMsg $
         return prop'
       where
         bail msg t = lift $ err $ text msg <+> quotes (unparseTerm t)
+
 checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ do
     dt <- validDatatype dtRaw env
     flip evalStateT env $ do
@@ -127,15 +129,15 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
       where
         missingCase caseNames = find (\(name, _) -> name `notElem` caseNames) (dtConss dt)
 
-    validateCase dt over env pc = errCtxt (text "Case" <+> quotes (unparseRawTerm $ pcCons pc)) $ do
+    validateCase dt over env ParseCase{pcCons = pcc, pcBody = pcb} = errCtxt (text "Case" <+> quotes (unparseRawTerm pcc)) $ do
         flip evalStateT env $ do
-            caseT <- state (variantFixesTerm $ pcCons pc)
+            caseT <- state (variantFixesTerm pcc)
             (consName, consArgNs) <- lift $ validConsCase caseT dt
             let recArgNames = map snd $ filter (\x -> fst x == TRec) consArgNs
 
             let subgoal = substFreeProp prop [(over, caseT)]
 
-            case pcToShow pc of
+            case pcbToShow pcb of
                 Nothing ->
                     lift $ err $ text "Missing 'To show'"
                 Just raw -> do
@@ -146,11 +148,11 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
                             text "To show:" <+> unparseProp toShow
                             $+$ debug (text "Subgoal:" <+> unparseProp subgoal))
 
-                    userHyps <- checkPcHyps over recArgNames $ pcAssms pc
+                    userHyps <- checkPcHyps over recArgNames $ pcbAssms pcb
 
                     modify (\env -> env { axioms = userHyps ++ axioms env })
                     env <- get
-                    Prop _ _ <- lift $ checkProof subgoal (pcProof pc) env
+                    Prop _ _ <- lift $ checkProof subgoal (pcbProof pcb) env
                     return consName
 
     checkPcHyps over recVars rpcHyps = do
@@ -164,6 +166,74 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
         return $ map (fmap $ generalizeExceptProp recVars) pcHyps
       where
         instOver n = [(over, Free n)]
+
+checkProof prop (ParseCompInduction funRaw casesRaw) env = errCtxt ctxtMsg $ do
+    flip evalStateT env $ do
+        lift $ validateCases casesRaw env
+        return prop 
+    where
+        ctxtMsg = text "Induction on the computation of" <+> quotes (text funRaw)
+
+        funEqs = namedVal <$> filter (\namedProp -> namedName namedProp == "def " ++ funRaw) (axioms env)
+
+        propFrees = collectFrees (propLhs prop) $ collectFrees (propRhs prop) []
+
+        validateCases cases env = do
+            caseNums <- traverse (validateCase env) cases
+            case missingCase caseNums of
+                Nothing -> return ()
+                Just caseNum -> err $ text "Missing case"  <+> int caseNum
+            where
+                missingCase caseNums = find (`notElem` caseNums) [1..length funEqs]
+
+        validateCase env ParseCompCase{pccCaseNum = caseNum, pccBody = pcb}
+            | caseNum < 1 = errStr "Case number must be at least 1"
+            | caseNum > length funEqs = 
+                err $ text "The function" <+> quotes (text funRaw) <+> text "has" <+> int (length funEqs) <+>
+                      text "equations but got case number" <+> int caseNum
+            | otherwise = errCtxt (text "Case" <+> int caseNum) $ flip evalStateT env $ do
+                let funEq = funEqs !! (caseNum - 1)
+                let (_, funEqInsts) = stripComb (propLhs funEq)
+
+                let schematicSubgoal = substFreeProp prop $ zip propFrees funEqInsts
+
+                case pcbToShow pcb of
+                    Nothing -> lift $ errStr "Missing 'To show'"
+                    Just rawToShow -> do
+                        toShow <- state (declareProp rawToShow)
+                        case matchProp toShow schematicSubgoal [] of
+                            Nothing -> lift . err $
+                                           text "'To show' does not match subgoal:"
+                                           `indent` (
+                                                text "To show:" <+> unparseProp toShow $+$
+                                                debug (text "Subgoal:" <+> unparseProp schematicSubgoal))
+                            Just unifier -> do
+                                let subgoal = substProp schematicSubgoal unifier
+                                userHyps <- checkPcHyps (recArgs $ subst (propRhs funEq) unifier) $ pcbAssms pcb
+                                modify (\env -> env{axioms = userHyps ++ axioms env})
+                                env <- get
+                                Prop _ _ <- lift $ checkProof subgoal (pcbProof pcb) env
+                                return caseNum
+        
+        recArgs t@(Application _ _)
+            | t0 == Const symIf = []
+            | t0 == Const funRaw = ts : concatMap recArgs ts
+            | otherwise = concatMap recArgs ts
+            where
+                (t0, ts) = stripComb t
+        recArgs _ = []
+
+        checkPcHyps recArgs rpcHyps = do
+            pcHyps <- traverse (traverse (state . declareProp)) rpcHyps
+            let indHyps = substFreeProp prop . zip propFrees <$> recArgs
+
+            lift $ for_ pcHyps $ \(Named name prop) ->
+                if prop `elem` indHyps then return ()
+                else err $
+                    text ("Induction hypothesis " ++ name ++ " is not valid")
+                    `indent` debug (unparseProp prop)
+            return $ map (fmap $ generalizeExceptProp propFrees) pcHyps
+
 checkProof prop (ParseCases dtRaw onRaw casesRaw) env = errCtxt ctxtMsg $ do
     dt <- validDatatype dtRaw env
     flip evalStateT env $ do
@@ -184,19 +254,19 @@ checkProof prop (ParseCases dtRaw onRaw casesRaw) env = errCtxt ctxtMsg $ do
       where
         missingCase caseNames = find (\(name, _) -> name `notElem` caseNames) (dtConss dt)
 
-    validateCase dt on env pc = errCtxt (text "Case" <+> quotes (unparseRawTerm $ pcCons pc)) $ do
+    validateCase dt on env ParseCase{pcCons = pcc, pcBody = pcb} = errCtxt (text "Case" <+> quotes (unparseRawTerm pcc)) $ do
         flip evalStateT env $ do
-            caseT <- state (variantFixesTerm $ pcCons pc)
+            caseT <- state (variantFixesTerm pcc)
             (consName, _) <- lift $ validConsCase caseT dt
 
-            when (isJust $ pcToShow pc) $
+            when (isJust $ pcbToShow pcb) $
                 lift $ errStr "Superfluous 'To show'"
 
-            userAssm <- checkPcAssms on caseT $ pcAssms pc
+            userAssm <- checkPcAssms on caseT $ pcbAssms pcb
 
             modify (\env -> env { axioms = userAssm : axioms env })
             env <- get
-            Prop _ _ <- lift $ checkProof prop (pcProof pc) env
+            Prop _ _ <- lift $ checkProof prop (pcbProof pcb) env
             return consName
 
     checkPcAssms :: Term -> Term -> [Named RawProp] -> StateT Env Err (Named Prop)

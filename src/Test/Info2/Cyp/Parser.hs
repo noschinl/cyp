@@ -2,6 +2,8 @@
 module Test.Info2.Cyp.Parser
     ( ParseLemma (..)
     , ParseCase (..)
+    , ParseCompCase (..)
+    , ParseCaseBody (..)
     , ParseProof (..)
     , cthyParser
     , cprfParser
@@ -21,6 +23,7 @@ import qualified Language.Haskell.Exts.Parser as P
 import qualified Language.Haskell.Exts.Syntax as Exts
 import Language.Haskell.Exts.SrcLoc (SrcSpanInfo)
 import Text.PrettyPrint (quotes, text, (<+>), Doc)
+import Text.Read (readEither)
 
 import Test.Info2.Cyp.Env
 import Test.Info2.Cyp.Term
@@ -37,15 +40,25 @@ data ParseDeclTree
 
 data ParseLemma = ParseLemma String RawProp ParseProof -- ^ Proposition, Proof
 
+data ParseCaseBody = ParseCaseBody
+    { pcbToShow :: Maybe RawProp
+    , pcbAssms :: [Named RawProp]
+    , pcbProof :: ParseProof
+    }
+
 data ParseCase = ParseCase
     { pcCons :: RawTerm
-    , pcToShow :: Maybe RawProp
-    , pcAssms :: [Named RawProp]
-    , pcProof :: ParseProof
+    , pcBody :: ParseCaseBody
+    }
+
+data ParseCompCase = ParseCompCase
+    { pccCaseNum :: Int
+    , pccBody :: ParseCaseBody
     }
 
 data ParseProof
     = ParseInduction String RawTerm [ParseCase] -- ^ data type, induction variable, cases
+    | ParseCompInduction String [ParseCompCase] -- ^ function, cases
     | ParseEquation (EqnSeqq RawTerm)
     | ParseExt RawTerm RawProp ParseProof -- ^ fixed variable, to show, subproof
     | ParseCases String RawTerm [ParseCase] -- ^ data type, term, cases
@@ -152,6 +165,15 @@ inductionProofParser = do
     manySpacesOrComment
     return $ ParseInduction datatype over cases
 
+compInductionProofParser :: Parsec [Char] Env ParseProof
+compInductionProofParser = do
+    keyword "on"
+    fun <- many1 (noneOf " \t\r\n" <?> "function")
+    manySpacesOrComment
+    cases <- many1 compCaseParser
+    manySpacesOrComment
+    return $ ParseCompInduction fun cases
+
 caseProofParser :: Parsec [Char] Env ParseProof
 caseProofParser = do
     keyword "on"
@@ -217,6 +239,7 @@ proofParser = do
     keyword "Proof"
     p <- choice
         [ keyword "by induction" >> inductionProofParser
+        , keyword "by computation induction" >> compInductionProofParser
         , keyword "by extensionality" >> extProofParser
         , keyword "by case analysis" >> caseProofParser
         , keyword "by cheating" >> lineBreak >> cheatingProofParser
@@ -280,23 +303,14 @@ toShowParser = do
     char ':'
     propParser defaultToFree
 
-caseParser :: Parsec [Char] Env ParseCase
-caseParser = do
-    keywordCase
-    lineSpaces
-    t <- termParser defaultToFree
-    manySpacesOrComment
+caseBodyParser :: Parsec [Char] Env ParseCaseBody
+caseBodyParser = do
     toShow <- optionMaybe (toShowParser <* manySpacesOrComment)
     assms <- assmsP
     manySpacesOrComment
     proof <- proofParser
     manySpacesOrComment
-    return $ ParseCase
-        { pcCons = t
-        , pcToShow = toShow
-        , pcAssms = assms
-        , pcProof = proof
-        }
+    return $ ParseCaseBody toShow assms proof
   where
     assmsP = flip manyTill (lookAhead (string "Proof")) $ do
         assm <- assmP
@@ -306,10 +320,29 @@ caseParser = do
         (name, prop) <- namedPropParser defaultToFree idParser
         return $ Named (if name == "" then "assumption" else name) prop
 
+caseParser :: Parsec [Char] Env ParseCase
+caseParser = do
+    keywordCase
+    lineSpaces
+    t <- termParser defaultToFree
+    manySpacesOrComment
+    ParseCase t <$> caseBodyParser
+
+caseNumParser :: Parsec [Char] u Int
+caseNumParser = do
+    digits <- many1 digit
+    toParsec show (readEither digits)
+
+compCaseParser :: Parsec [Char] Env ParseCompCase
+compCaseParser = do
+    keywordCase
+    lineSpaces
+    caseNum <- caseNumParser 
+    manySpacesOrComment
+    ParseCompCase caseNum <$> caseBodyParser
 
 manySpacesOrComment :: Parsec [Char] u ()
 manySpacesOrComment = skipMany $ void space <|> commentParser
-
 
 instance MonadFail (Either Doc) where
     fail = Left . text

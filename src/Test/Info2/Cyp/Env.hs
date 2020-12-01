@@ -31,7 +31,7 @@ interpretTerm env = fmap f
 interpretProp :: Env -> RawProp -> Prop
 interpretProp env = propMap (interpretTerm env)
 
-variantFixes :: [String] -> Env ->  ([IdxName], Env)
+variantFixes :: [String] -> Env -> ([IdxName], Env)
 variantFixes xs env = (xs', env')
   where
     ins free = M.insertWith (\_ n -> n + 1) free 0

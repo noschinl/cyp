@@ -1,0 +1,24 @@
+Lemma: length (splice xs ys) .=. length xs + length ys
+Proof by computation induction on splice
+    Case 1
+    To show: length (splice [] ys) .=. length [] + length ys
+    Proof
+                                    length (splice [] ys)
+        (by def splice)         .=. length ys
+        (by zeroAdd)            .=. 0 + length ys
+        (by def length)         .=. length [] + length ys
+    QED
+
+    Case 2 
+    To show: length (splice (x:xs) ys) .=. length (x:xs) + length ys
+    IH: length (splice ys xs) .=. length ys + length xs
+    Proof
+                                    length (splice (x:xs) ys)
+        (by def splice)         .=. length (x : splice ys xs)
+        (by def length)         .=. 1 + length (splice ys xs)
+        (by IH)                 .=. 1 + (length ys + length xs)
+        (by addComm)            .=. 1 + (length xs + length ys)
+        (by addAssoc)           .=. (1 + length xs) + length ys
+        (by def length)         .=. length (x:xs) + length ys
+    QED
+QED
