@@ -15,6 +15,7 @@ module Test.Info2.Cyp.Parser
     )
 where
 
+import Control.Monad (void)
 import Data.Char
 import Data.Maybe
 import Text.Parsec as Parsec
@@ -347,7 +348,7 @@ compCaseParser = do
     ParseCompCase caseNum <$> caseBodyParser
 
 manySpacesOrComment :: Parsec [Char] u ()
-manySpacesOrComment = skipMany space <|> commentParser
+manySpacesOrComment = skipMany $ void space <|> commentParser
 
 instance MonadFail (Either Doc) where
     fail = Left . text
