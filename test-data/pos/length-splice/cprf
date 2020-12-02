@@ -1,5 +1,5 @@
 Lemma: length (splice xs ys) .=. length xs + length ys
-Proof by computation induction on splice
+Proof by computation induction on splice with xs ys
     Case 1
     To show: length (splice [] ys) .=. length [] + length ys
     Proof

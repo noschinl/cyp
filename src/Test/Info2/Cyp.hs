@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Test.Info2.Cyp (
   proof
@@ -12,7 +13,7 @@ import Data.List
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Text.Parsec as Parsec
-import Text.PrettyPrint (int, colon, comma, fsep, punctuate, quotes, text, vcat, (<>), (<+>), ($+$))
+import Text.PrettyPrint (colon, comma, fsep, hsep, int, punctuate, quotes, text, vcat, (<>), (<+>), ($+$))
 
 import Test.Info2.Cyp.Env
 import Test.Info2.Cyp.Parser
@@ -68,6 +69,7 @@ checkLemma (ParseLemma name rprop proof) env = errCtxt (text "Lemma" <+> text na
 
 checkProof :: Prop -> ParseProof -> Env -> Err Prop
 checkProof _ ParseCheating _ = err $ text "Cheating detected"
+
 checkProof prop (ParseEquation reqns) env = errCtxtStr "Equational proof" $ do
     let (eqns, env') = runState (traverse (state . declareTerm) reqns) env
     proved <- validEqnSeqq (axioms env') eqns
@@ -167,35 +169,45 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
       where
         instOver n = [(over, Free n)]
 
-checkProof prop (ParseCompInduction funRaw casesRaw) env = errCtxt ctxtMsg $ do
+checkProof prop (ParseCompInduction funRaw oversRaw casesRaw) env = errCtxt ctxtMsg $ do
     flip evalStateT env $ do
-        lift $ validateCases casesRaw env
+        overs <- forM oversRaw validateOver 
+        env <- get
+        lift $ validateCases overs casesRaw env
         return prop 
     where
-        ctxtMsg = text "Induction on the computation of" <+> quotes (text funRaw)
+        ctxtMsg = "Induction on the computation of" <+> quotes (text funRaw)
+
+        validateOver t = do
+            t' <- state (declareTerm $ Free t)
+            case t' of
+                Free v -> return v
+                _ -> lift $ err $ "Term" <+> quotes (unparseTerm t') <+> "is not a valid induction variable"
 
         funEqs = namedVal <$> filter (\namedProp -> namedName namedProp == "def " ++ funRaw) (axioms env)
+        funArity = length $ snd $ stripComb $ propLhs $ head funEqs
 
-        propFrees = collectFrees (propLhs prop) $ collectFrees (propRhs prop) []
-
-        validateCases cases env = do
-            caseNums <- traverse (validateCase env) cases
+        validateCases overs cases env = do
+            caseNums <- traverse (validateCase overs env) cases
             case missingCase caseNums of
                 Nothing -> return ()
-                Just caseNum -> err $ text "Missing case"  <+> int caseNum
+                Just caseNum -> err $ "Missing case" <+> int caseNum
             where
                 missingCase caseNums = find (`notElem` caseNums) [1..length funEqs]
 
-        validateCase env ParseCompCase{pccCaseNum = caseNum, pccBody = pcb}
-            | caseNum < 1 = errStr "Case number must be at least 1"
+        validateCase overs env ParseCompCase{pccCaseNum = caseNum, pccBody = pcb}
+            | null funEqs = err $ hsep ["The function", quotes (text funRaw), "does not exist"]
+            | length overs < funArity = err $ hsep ["Fewer variables than arity of function", quotes (text funRaw), "given"]
+            | length overs > funArity = err $ hsep ["More variables than arity of function", quotes (text funRaw), "given"]
+            | caseNum < 1 = err "Case number must be at least 1"
             | caseNum > length funEqs = 
-                err $ text "The function" <+> quotes (text funRaw) <+> text "has" <+> int (length funEqs) <+>
-                      text "equations but got case number" <+> int caseNum
+                err $ hsep [ "The function", quotes (text funRaw), "has", int (length funEqs)
+                           , "equations but got case number", int caseNum ]
             | otherwise = errCtxt (text "Case" <+> int caseNum) $ flip evalStateT env $ do
                 let funEq = funEqs !! (caseNum - 1)
                 let (_, funEqInsts) = stripComb (propLhs funEq)
 
-                let schematicSubgoal = substFreeProp prop $ zip propFrees funEqInsts
+                let schematicSubgoal = substFreeProp prop $ zip overs funEqInsts
 
                 case pcbToShow pcb of
                     Nothing -> lift $ errStr "Missing 'To show'"
@@ -203,13 +215,13 @@ checkProof prop (ParseCompInduction funRaw casesRaw) env = errCtxt ctxtMsg $ do
                         toShow <- state (declareProp rawToShow)
                         case matchProp toShow schematicSubgoal [] of
                             Nothing -> lift . err $
-                                           text "'To show' does not match subgoal:"
+                                           "'To show' does not match subgoal:"
                                            `indent` (
-                                                text "To show:" <+> unparseProp toShow $+$
-                                                debug (text "Subgoal:" <+> unparseProp schematicSubgoal))
+                                                "To show:" <+> unparseProp toShow $+$
+                                                debug ("Subgoal:" <+> unparseProp schematicSubgoal))
                             Just unifier -> do
                                 let subgoal = substProp schematicSubgoal unifier
-                                userHyps <- checkPcHyps (recArgs $ subst (propRhs funEq) unifier) $ pcbAssms pcb
+                                userHyps <- checkPcHyps overs (recArgs $ subst (propRhs funEq) unifier) $ pcbAssms pcb
                                 modify (\env -> env{axioms = userHyps ++ axioms env})
                                 env <- get
                                 Prop _ _ <- lift $ checkProof subgoal (pcbProof pcb) env
@@ -223,16 +235,17 @@ checkProof prop (ParseCompInduction funRaw casesRaw) env = errCtxt ctxtMsg $ do
                 (t0, ts) = stripComb t
         recArgs _ = []
 
-        checkPcHyps recArgs rpcHyps = do
+        checkPcHyps overs recArgs rpcHyps = do
             pcHyps <- traverse (traverse (state . declareProp)) rpcHyps
-            let indHyps = substFreeProp prop . zip propFrees <$> recArgs
+            let indHyps = substFreeProp prop . zip overs <$> recArgs
 
             lift $ for_ pcHyps $ \(Named name prop) ->
                 if prop `elem` indHyps then return ()
                 else err $
-                    text ("Induction hypothesis " ++ name ++ " is not valid")
+                    ("Induction hypothesis" <+> text name <+> "is not valid")
                     `indent` debug (unparseProp prop)
-            return $ map (fmap $ generalizeExceptProp propFrees) pcHyps
+            let except = concatMap (foldr collectFrees []) recArgs
+            return $ map (fmap $ generalizeExceptProp except) pcHyps
 
 checkProof prop (ParseCases dtRaw onRaw casesRaw) env = errCtxt ctxtMsg $ do
     dt <- validDatatype dtRaw env

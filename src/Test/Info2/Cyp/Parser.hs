@@ -15,7 +15,6 @@ module Test.Info2.Cyp.Parser
     )
 where
 
-import Control.Monad
 import Data.Char
 import Data.Maybe
 import Text.Parsec as Parsec
@@ -58,7 +57,7 @@ data ParseCompCase = ParseCompCase
 
 data ParseProof
     = ParseInduction String RawTerm [ParseCase] -- ^ data type, induction variable, cases
-    | ParseCompInduction String [ParseCompCase] -- ^ function, cases
+    | ParseCompInduction String [String] [ParseCompCase] -- ^ function, induction variables, cases
     | ParseEquation (EqnSeqq RawTerm)
     | ParseExt RawTerm RawProp ParseProof -- ^ fixed variable, to show, subproof
     | ParseCases String RawTerm [ParseCase] -- ^ data type, term, cases
@@ -90,6 +89,9 @@ eol = do
     _ <- try (string "\n\r") <|> try (string "\r\n") <|> string "\n" <|> string "\r" -- <|> (eof >> return "")
         <?> "end of line"
     return ()
+
+wordParser :: String -> Parsec [Char] u String
+wordParser expected = many1 (satisfy (not . isSpace)) <?> expected
 
 lineBreak :: Parsec [Char] u ()
 lineBreak = (eof <|> eol <|> commentParser) >> manySpacesOrComment
@@ -157,7 +159,7 @@ equationProofParser = fmap ParseEquation equationsParser
 inductionProofParser :: Parsec [Char] Env ParseProof
 inductionProofParser = do
     keyword "on"
-    datatype <- many1 (noneOf " \t\r\n" <?> "datatype")
+    datatype <- wordParser "datatype" 
     lineSpaces
     over <- termParser defaultToFree
     manySpacesOrComment
@@ -168,11 +170,14 @@ inductionProofParser = do
 compInductionProofParser :: Parsec [Char] Env ParseProof
 compInductionProofParser = do
     keyword "on"
-    fun <- many1 (noneOf " \t\r\n" <?> "function")
+    fun <- wordParser "function"
+    lineSpaces 
+    keyword "with"
+    over <- many (lineSpaces >> wordParser "variable")
     manySpacesOrComment
     cases <- many1 compCaseParser
     manySpacesOrComment
-    return $ ParseCompInduction fun cases
+    return $ ParseCompInduction fun over cases
 
 caseProofParser :: Parsec [Char] Env ParseProof
 caseProofParser = do
@@ -342,7 +347,7 @@ compCaseParser = do
     ParseCompCase caseNum <$> caseBodyParser
 
 manySpacesOrComment :: Parsec [Char] u ()
-manySpacesOrComment = skipMany $ void space <|> commentParser
+manySpacesOrComment = skipMany space <|> commentParser
 
 instance MonadFail (Either Doc) where
     fail = Left . text
