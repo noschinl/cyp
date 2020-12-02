@@ -239,13 +239,11 @@ checkProof prop (ParseCompInduction funRaw oversRaw casesRaw) env = errCtxt ctxt
             pcHyps <- traverse (traverse (state . declareProp)) rpcHyps
             let indHyps = substFreeProp prop . zip overs <$> recArgs
 
-            lift $ for_ pcHyps $ \(Named name prop) ->
-                if prop `elem` indHyps then return ()
-                else err $
-                    ("Induction hypothesis" <+> text name <+> "is not valid")
-                    `indent` debug (unparseProp prop)
-            let except = concatMap (foldr collectFrees []) recArgs
-            return $ map (fmap $ generalizeExceptProp except) pcHyps
+            lift $ forM pcHyps $ \(Named name prop) ->
+                case prop `elemIndex` indHyps of
+                    Just i -> return $ Named name $ generalizeExceptProp (foldr collectFrees [] (recArgs !! i)) prop 
+                    Nothing -> err $ ("Induction hypothesis" <+> text name <+> "is not valid")
+                                     `indent` debug (unparseProp prop)
 
 checkProof prop (ParseCases dtRaw onRaw casesRaw) env = errCtxt ctxtMsg $ do
     dt <- validDatatype dtRaw env
