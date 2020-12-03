@@ -41,7 +41,7 @@ proof (mName, mContent) (sName, sContent) = do
 
 processMasterFile :: FilePath -> String -> Err Env
 processMasterFile path content = errCtxtStr "Parsing background theory" $ do
-    mResult <- eitherToErr $ Parsec.parse cthyParser path content
+    mResult <- eitherToErrWith showParsecErr $ Parsec.parse cthyParser path content
     dts <- readDataType mResult
     syms <- (defaultConsts ++) <$> readSym mResult
     (fundefs, consts) <- readFunc syms mResult
@@ -52,7 +52,7 @@ processMasterFile path content = errCtxtStr "Parsing background theory" $ do
 
 processProofFile :: Env -> FilePath -> String -> Err [ParseLemma]
 processProofFile env path content = errCtxtStr "Parsing proof" $
-    eitherToErr $ Parsec.runParser cprfParser env path content
+    eitherToErrWith showParsecErr $ Parsec.runParser cprfParser env path content
 
 checkProofs :: Env -> [ParseLemma] -> Err [Named Prop]
 checkProofs env []  = Right $ axioms env
@@ -329,7 +329,7 @@ validEqnSeq rules (Step spos t1 rule es)
     | rewritesToWith rule rules t1 t2 = do
         Prop _ tLast <- validEqnSeq rules es
         return (Prop t1 tLast)
-    | otherwise = errCtxtStr ("Invalid proof step in line " ++ show (Parsec.sourceLine spos) ++ noRuleMsg) $ err $
+    | otherwise = errCtxtStr (showSrcPos spos ++ " Invalid proof step " ++ noRuleMsg) $ err $
         unparseTerm t1 $+$ text ("(by " ++ rule ++ ") " ++ symPropEq) <+> unparseTerm t2
         $+$ debug (text rule Text.PrettyPrint.<> text ":" <+> vcat (map (unparseProp . namedVal) $ filter (\x -> namedName x == rule) rules))
   where
