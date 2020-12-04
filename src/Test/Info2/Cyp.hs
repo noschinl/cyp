@@ -76,7 +76,7 @@ checkProof prop (ParseEquation reqns) env = errCtxtStr "Equational proof" $ do
     when (prop /= proved) $ err $
         text "Proved proposition does not match goal:" `indent` unparseProp proved
     return proved
-    
+
 checkProof prop (ParseExt withRaw toShowRaw proof) env = errCtxt ctxtMsg $
     flip evalStateT env $ do
         with <- validateWith withRaw
@@ -171,10 +171,10 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
 
 checkProof prop (ParseCompInduction funRaw oversRaw casesRaw) env = errCtxt ctxtMsg $ do
     flip evalStateT env $ do
-        overs <- forM oversRaw validateOver 
+        overs <- forM oversRaw validateOver
         env <- get
         lift $ validateCases overs casesRaw env
-        return prop 
+        return prop
     where
         ctxtMsg = "Induction on the computation of" <+> quotes (text funRaw)
 
@@ -200,7 +200,7 @@ checkProof prop (ParseCompInduction funRaw oversRaw casesRaw) env = errCtxt ctxt
             | length overs < funArity = err $ hsep ["Fewer variables than arity of function", quotes (text funRaw), "given"]
             | length overs > funArity = err $ hsep ["More variables than arity of function", quotes (text funRaw), "given"]
             | caseNum < 1 = err "Case number must be at least 1"
-            | caseNum > length funEqs = 
+            | caseNum > length funEqs =
                 err $ hsep [ "The function", quotes (text funRaw), "has", int (length funEqs)
                            , "equations but got case number", int caseNum ]
             | otherwise = errCtxt (text "Case" <+> int caseNum) $ flip evalStateT env $ do
@@ -226,7 +226,7 @@ checkProof prop (ParseCompInduction funRaw oversRaw casesRaw) env = errCtxt ctxt
                                 env <- get
                                 Prop _ _ <- lift $ checkProof subgoal (pcbProof pcb) env
                                 return caseNum
-        
+
         recArgs t@(Application _ _)
             | t0 == Const symIf = []
             | t0 == Const funRaw = ts : concatMap recArgs ts
@@ -241,7 +241,7 @@ checkProof prop (ParseCompInduction funRaw oversRaw casesRaw) env = errCtxt ctxt
 
             lift $ forM pcHyps $ \(Named name prop) ->
                 case prop `elemIndex` indHyps of
-                    Just i -> return $ Named name $ generalizeExceptProp (foldr collectFrees [] (recArgs !! i)) prop 
+                    Just i -> return $ Named name $ generalizeExceptProp (foldr collectFrees [] (recArgs !! i)) prop
                     Nothing -> err $ ("Induction hypothesis" <+> text name <+> "is not valid")
                                      `indent` debug (unparseProp prop)
 
@@ -329,7 +329,7 @@ validEqnSeq rules (Step spos t1 rule es)
     | rewritesToWith rule rules t1 t2 = do
         Prop _ tLast <- validEqnSeq rules es
         return (Prop t1 tLast)
-    | otherwise = errCtxtStr (showSrcPos spos ++ " Invalid proof step " ++ noRuleMsg) $ err $
+    | otherwise = errCtxtStr (showSrcPos spos ++ " Invalid proof step" ++ noRuleMsg) $ err $
         unparseTerm t1 $+$ text ("(by " ++ rule ++ ") " ++ symPropEq) <+> unparseTerm t2
         $+$ debug (text rule Text.PrettyPrint.<> text ":" <+> vcat (map (unparseProp . namedVal) $ filter (\x -> namedName x == rule) rules))
   where
