@@ -171,10 +171,8 @@ inductionProofParser = do
 compInductionProofParser :: Parsec [Char] Env ParseProof
 compInductionProofParser = do
     keyword "on"
+    over <- manyTill (wordParser "variable" <* lineSpaces) (keyword "with")
     fun <- wordParser "function"
-    lineSpaces 
-    keyword "with"
-    over <- many (lineSpaces >> wordParser "variable")
     manySpacesOrComment
     cases <- many1 compCaseParser
     manySpacesOrComment
