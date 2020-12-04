@@ -2,6 +2,8 @@
 module Test.Info2.Cyp.Parser
     ( ParseLemma (..)
     , ParseCase (..)
+    , ParseCompCase (..)
+    , ParseCaseBody (..)
     , ParseProof (..)
     , cthyParser
     , cprfParser
@@ -13,6 +15,7 @@ module Test.Info2.Cyp.Parser
     )
 where
 
+import Control.Monad (void)
 import Data.Char
 import Data.Maybe
 import Text.Parsec as Parsec
@@ -20,6 +23,7 @@ import qualified Language.Haskell.Exts.Parser as P
 import qualified Language.Haskell.Exts.Syntax as Exts
 import Language.Haskell.Exts.SrcLoc (SrcSpanInfo)
 import Text.PrettyPrint (quotes, text, (<+>), Doc)
+import Text.Read (readEither)
 
 import Test.Info2.Cyp.Env
 import Test.Info2.Cyp.Term
@@ -36,15 +40,25 @@ data ParseDeclTree
 
 data ParseLemma = ParseLemma String RawProp ParseProof -- ^ Proposition, Proof
 
+data ParseCaseBody = ParseCaseBody
+    { pcbToShow :: Maybe RawProp
+    , pcbAssms :: [Named RawProp]
+    , pcbProof :: ParseProof
+    }
+
 data ParseCase = ParseCase
     { pcCons :: RawTerm
-    , pcToShow :: Maybe RawProp
-    , pcAssms :: [Named RawProp]
-    , pcProof :: ParseProof
+    , pcBody :: ParseCaseBody
+    }
+
+data ParseCompCase = ParseCompCase
+    { pccCaseNum :: Int
+    , pccBody :: ParseCaseBody
     }
 
 data ParseProof
     = ParseInduction String RawTerm [ParseCase] -- ^ data type, induction variable, cases
+    | ParseCompInduction String [String] [ParseCompCase] -- ^ function, induction variables, cases
     | ParseEquation (EqnSeqq RawTerm)
     | ParseExt RawTerm RawProp ParseProof -- ^ fixed variable, to show, subproof
     | ParseCases String RawTerm [ParseCase] -- ^ data type, term, cases
@@ -77,6 +91,9 @@ eol = do
         <?> "end of line"
     return ()
 
+wordParser :: String -> Parsec [Char] u String
+wordParser expected = many1 (satisfy (not . isSpace)) <?> expected
+
 lineBreak :: Parsec [Char] u ()
 lineBreak = (eof <|> eol <|> commentParser) >> manySpacesOrComment
 
@@ -99,16 +116,15 @@ commentParser = p <?> "comment"
         return ()
 
 cthyParser :: Parsec [Char] () [ParseDeclTree]
-cthyParser =
-    do result <- many cthyParsers
-       eof
-       return result
+cthyParser = do
+    result <- many cthyParsers
+    eof
+    return result
 
 cthyParsers :: Parsec [Char] () ParseDeclTree
-cthyParsers =
-    do manySpacesOrComment
-       result <- (goalParser <|> dataParser <|> axiomParser <|> symParser <|> try funParser)
-       return result
+cthyParsers = do
+    manySpacesOrComment
+    goalParser <|> dataParser <|> axiomParser <|> symParser <|> try funParser
 
 keywordToEolParser :: String -> (String -> a) -> Parsec [Char] () a
 keywordToEolParser s f =
@@ -144,13 +160,23 @@ equationProofParser = fmap ParseEquation equationsParser
 inductionProofParser :: Parsec [Char] Env ParseProof
 inductionProofParser = do
     keyword "on"
-    datatype <- many1 (noneOf " \t\r\n" <?> "datatype")
+    datatype <- wordParser "datatype" 
     lineSpaces
     over <- termParser defaultToFree
     manySpacesOrComment
     cases <- many1 caseParser
     manySpacesOrComment
     return $ ParseInduction datatype over cases
+
+compInductionProofParser :: Parsec [Char] Env ParseProof
+compInductionProofParser = do
+    keyword "on"
+    over <- manyTill (wordParser "variable" <* lineSpaces) (keyword "with")
+    fun <- wordParser "function"
+    manySpacesOrComment
+    cases <- many1 compCaseParser
+    manySpacesOrComment
+    return $ ParseCompInduction fun over cases
 
 caseProofParser :: Parsec [Char] Env ParseProof
 caseProofParser = do
@@ -217,6 +243,7 @@ proofParser = do
     keyword "Proof"
     p <- choice
         [ keyword "by induction" >> inductionProofParser
+        , keyword "by computation induction" >> compInductionProofParser
         , keyword "by extensionality" >> extProofParser
         , keyword "by case analysis" >> caseProofParser
         , keyword "by cheating" >> lineBreak >> cheatingProofParser
@@ -280,23 +307,14 @@ toShowParser = do
     char ':'
     propParser defaultToFree
 
-caseParser :: Parsec [Char] Env ParseCase
-caseParser = do
-    keywordCase
-    lineSpaces
-    t <- termParser defaultToFree
-    manySpacesOrComment
+caseBodyParser :: Parsec [Char] Env ParseCaseBody
+caseBodyParser = do
     toShow <- optionMaybe (toShowParser <* manySpacesOrComment)
     assms <- assmsP
     manySpacesOrComment
     proof <- proofParser
     manySpacesOrComment
-    return $ ParseCase
-        { pcCons = t
-        , pcToShow = toShow
-        , pcAssms = assms
-        , pcProof = proof
-        }
+    return $ ParseCaseBody toShow assms proof
   where
     assmsP = flip manyTill (lookAhead (string "Proof")) $ do
         assm <- assmP
@@ -306,10 +324,29 @@ caseParser = do
         (name, prop) <- namedPropParser defaultToFree idParser
         return $ Named (if name == "" then "assumption" else name) prop
 
+caseParser :: Parsec [Char] Env ParseCase
+caseParser = do
+    keywordCase
+    lineSpaces
+    t <- termParser defaultToFree
+    manySpacesOrComment
+    ParseCase t <$> caseBodyParser
+
+caseNumParser :: Parsec [Char] u Int
+caseNumParser = do
+    digits <- many1 digit
+    toParsec show (readEither digits)
+
+compCaseParser :: Parsec [Char] Env ParseCompCase
+compCaseParser = do
+    keywordCase
+    lineSpaces
+    caseNum <- caseNumParser 
+    manySpacesOrComment
+    ParseCompCase caseNum <$> caseBodyParser
 
 manySpacesOrComment :: Parsec [Char] u ()
-manySpacesOrComment = skipMany $ (space >> return ()) <|> commentParser
-
+manySpacesOrComment = skipMany $ void space <|> commentParser
 
 instance MonadFail (Either Doc) where
     fail = Left . text
@@ -337,8 +374,8 @@ readDataType = sequence . mapMaybe parseDataType
         return (name, args')
 
     parseDaconArg tycon term | term == tycon = return TRec
-    parseDaconArg _ (Application _ _) = errStr $ "Nested constructors (apart from direct recursion) are not allowed."
-    parseDaconArg _ (Literal _) = errStr $ "Literals not allowed in datatype declarations"
+    parseDaconArg _ (Application _ _) = errStr "Nested constructors (apart from direct recursion) are not allowed."
+    parseDaconArg _ (Literal _) = errStr "Literals not allowed in datatype declarations"
     parseDaconArg _ _ = return TNRec
 
 readAxiom :: [String] -> [ParseDeclTree] -> Err [Named Prop]
@@ -346,11 +383,11 @@ readAxiom consts = sequence . mapMaybe parseAxiom
   where
     parseAxiom (Axiom n s) = Just $ do
         prop <- iparseProp (defaultToFree consts) s
-        return $ Named n $ interpretProp declEnv $ generalizeExceptProp [] $ prop
+        return $ Named n $ interpretProp declEnv $ generalizeExceptProp [] prop
     parseAxiom _ = Nothing
 
 readGoal :: [String] -> [ParseDeclTree] -> Err [Prop]
-readGoal consts = sequence . map (fmap $ interpretProp declEnv)  . mapMaybe parseGoal
+readGoal consts = mapM (fmap $ interpretProp declEnv)  . mapMaybe parseGoal
   where
     parseGoal (Goal s) = Just $ iparseProp (defaultToFree consts) s
     parseGoal _ = Nothing
@@ -410,8 +447,8 @@ readFunc syms pds = do
 
 splitStringAt :: Eq a => [a] -> [a] -> [a] -> [[a]]
 splitStringAt _ [] h
-    | h == [] = []
-    | otherwise = h : []
+    | null h = []
+    | otherwise = [h]
 splitStringAt a (x:xs) h
     | x `elem` a = h : splitStringAt a xs []
     | otherwise = splitStringAt a xs (h++[x])

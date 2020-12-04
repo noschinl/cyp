@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Test.Info2.Cyp (
   proof
@@ -12,7 +13,7 @@ import Data.List
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Text.Parsec as Parsec
-import Text.PrettyPrint (colon, comma, fsep, punctuate, quotes, text, vcat, (<>), (<+>), ($+$))
+import Text.PrettyPrint (colon, comma, fsep, hsep, int, punctuate, quotes, text, vcat, (<>), (<+>), ($+$))
 
 import Test.Info2.Cyp.Env
 import Test.Info2.Cyp.Parser
@@ -42,12 +43,12 @@ processMasterFile :: FilePath -> String -> Err Env
 processMasterFile path content = errCtxtStr "Parsing background theory" $ do
     mResult <- eitherToErr $ Parsec.parse cthyParser path content
     dts <- readDataType mResult
-    syms <- fmap (defaultConsts ++) $ readSym mResult
+    syms <- (defaultConsts ++) <$> readSym mResult
     (fundefs, consts) <- readFunc syms mResult
     axs <- readAxiom consts mResult
     gls <- readGoal consts mResult
     return $ Env { datatypes = dts, axioms = fundefs ++ axs,
-        constants = nub $ consts, fixes = M.empty, goals = gls }
+        constants = nub consts, fixes = M.empty, goals = gls }
 
 processProofFile :: Env -> FilePath -> String -> Err [ParseLemma]
 processProofFile env path content = errCtxtStr "Parsing proof" $
@@ -68,12 +69,14 @@ checkLemma (ParseLemma name rprop proof) env = errCtxt (text "Lemma" <+> text na
 
 checkProof :: Prop -> ParseProof -> Env -> Err Prop
 checkProof _ ParseCheating _ = err $ text "Cheating detected"
+
 checkProof prop (ParseEquation reqns) env = errCtxtStr "Equational proof" $ do
     let (eqns, env') = runState (traverse (state . declareTerm) reqns) env
     proved <- validEqnSeqq (axioms env') eqns
     when (prop /= proved) $ err $
         text "Proved proposition does not match goal:" `indent` unparseProp proved
     return proved
+    
 checkProof prop (ParseExt withRaw toShowRaw proof) env = errCtxt ctxtMsg $
     flip evalStateT env $ do
         with <- validateWith withRaw
@@ -101,6 +104,7 @@ checkProof prop (ParseExt withRaw toShowRaw proof) env = errCtxt ctxtMsg $
         return prop'
       where
         bail msg t = lift $ err $ text msg <+> quotes (unparseTerm t)
+
 checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ do
     dt <- validDatatype dtRaw env
     flip evalStateT env $ do
@@ -127,15 +131,15 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
       where
         missingCase caseNames = find (\(name, _) -> name `notElem` caseNames) (dtConss dt)
 
-    validateCase dt over env pc = errCtxt (text "Case" <+> quotes (unparseRawTerm $ pcCons pc)) $ do
+    validateCase dt over env ParseCase{pcCons = pcc, pcBody = pcb} = errCtxt (text "Case" <+> quotes (unparseRawTerm pcc)) $ do
         flip evalStateT env $ do
-            caseT <- state (variantFixesTerm $ pcCons pc)
+            caseT <- state (variantFixesTerm pcc)
             (consName, consArgNs) <- lift $ validConsCase caseT dt
             let recArgNames = map snd $ filter (\x -> fst x == TRec) consArgNs
 
             let subgoal = substFreeProp prop [(over, caseT)]
 
-            case pcToShow pc of
+            case pcbToShow pcb of
                 Nothing ->
                     lift $ err $ text "Missing 'To show'"
                 Just raw -> do
@@ -146,24 +150,101 @@ checkProof prop (ParseInduction dtRaw overRaw casesRaw) env = errCtxt ctxtMsg $ 
                             text "To show:" <+> unparseProp toShow
                             $+$ debug (text "Subgoal:" <+> unparseProp subgoal))
 
-                    userHyps <- checkPcHyps over recArgNames $ pcAssms pc
+                    userHyps <- checkPcHyps over recArgNames $ pcbAssms pcb
 
                     modify (\env -> env { axioms = userHyps ++ axioms env })
                     env <- get
-                    Prop _ _ <- lift $ checkProof subgoal (pcProof pc) env
+                    Prop _ _ <- lift $ checkProof subgoal (pcbProof pcb) env
                     return consName
 
     checkPcHyps over recVars rpcHyps = do
         pcHyps <- traverse (traverse (state . declareProp)) rpcHyps
         let indHyps = map (substFreeProp prop . instOver) recVars
-        lift $ for_ pcHyps $ \(Named name prop) -> case prop `elem` indHyps of
-            True -> return ()
-            False -> err $
+        lift $ for_ pcHyps $ \(Named name prop) ->
+            if prop `elem` indHyps then return ()
+            else err $
                 text ("Induction hypothesis " ++ name ++ " is not valid")
-                `indent` (debug (unparseProp prop))
+                `indent` debug (unparseProp prop)
         return $ map (fmap $ generalizeExceptProp recVars) pcHyps
       where
         instOver n = [(over, Free n)]
+
+checkProof prop (ParseCompInduction funRaw oversRaw casesRaw) env = errCtxt ctxtMsg $ do
+    flip evalStateT env $ do
+        overs <- forM oversRaw validateOver 
+        env <- get
+        lift $ validateCases overs casesRaw env
+        return prop 
+    where
+        ctxtMsg = "Induction on the computation of" <+> quotes (text funRaw)
+
+        validateOver t = do
+            t' <- state (declareTerm $ Free t)
+            case t' of
+                Free v -> return v
+                _ -> lift $ err $ "Term" <+> quotes (unparseTerm t') <+> "is not a valid induction variable"
+
+        funEqs = namedVal <$> filter (\namedProp -> namedName namedProp == "def " ++ funRaw) (axioms env)
+        funArity = length $ snd $ stripComb $ propLhs $ head funEqs
+
+        validateCases overs cases env = do
+            caseNums <- traverse (validateCase overs env) cases
+            case missingCase caseNums of
+                Nothing -> return ()
+                Just caseNum -> err $ "Missing case" <+> int caseNum
+            where
+                missingCase caseNums = find (`notElem` caseNums) [1..length funEqs]
+
+        validateCase overs env ParseCompCase{pccCaseNum = caseNum, pccBody = pcb}
+            | null funEqs = err $ hsep ["The function", quotes (text funRaw), "does not exist"]
+            | length overs < funArity = err $ hsep ["Fewer variables than arity of function", quotes (text funRaw), "given"]
+            | length overs > funArity = err $ hsep ["More variables than arity of function", quotes (text funRaw), "given"]
+            | caseNum < 1 = err "Case number must be at least 1"
+            | caseNum > length funEqs = 
+                err $ hsep [ "The function", quotes (text funRaw), "has", int (length funEqs)
+                           , "equations but got case number", int caseNum ]
+            | otherwise = errCtxt (text "Case" <+> int caseNum) $ flip evalStateT env $ do
+                let funEq = funEqs !! (caseNum - 1)
+                let (_, funEqInsts) = stripComb (propLhs funEq)
+
+                let schematicSubgoal = substFreeProp prop $ zip overs funEqInsts
+
+                case pcbToShow pcb of
+                    Nothing -> lift $ errStr "Missing 'To show'"
+                    Just rawToShow -> do
+                        toShow <- state (declareProp rawToShow)
+                        case matchProp toShow schematicSubgoal [] of
+                            Nothing -> lift . err $
+                                           "'To show' does not match subgoal:"
+                                           `indent` (
+                                                "To show:" <+> unparseProp toShow $+$
+                                                debug ("Subgoal:" <+> unparseProp schematicSubgoal))
+                            Just unifier -> do
+                                let subgoal = substProp schematicSubgoal unifier
+                                userHyps <- checkPcHyps overs (recArgs $ subst (propRhs funEq) unifier) $ pcbAssms pcb
+                                modify (\env -> env{axioms = userHyps ++ axioms env})
+                                env <- get
+                                Prop _ _ <- lift $ checkProof subgoal (pcbProof pcb) env
+                                return caseNum
+        
+        recArgs t@(Application _ _)
+            | t0 == Const symIf = []
+            | t0 == Const funRaw = ts : concatMap recArgs ts
+            | otherwise = concatMap recArgs ts
+            where
+                (t0, ts) = stripComb t
+        recArgs _ = []
+
+        checkPcHyps overs recArgs rpcHyps = do
+            pcHyps <- traverse (traverse (state . declareProp)) rpcHyps
+            let indHyps = substFreeProp prop . zip overs <$> recArgs
+
+            lift $ forM pcHyps $ \(Named name prop) ->
+                case prop `elemIndex` indHyps of
+                    Just i -> return $ Named name $ generalizeExceptProp (foldr collectFrees [] (recArgs !! i)) prop 
+                    Nothing -> err $ ("Induction hypothesis" <+> text name <+> "is not valid")
+                                     `indent` debug (unparseProp prop)
+
 checkProof prop (ParseCases dtRaw onRaw casesRaw) env = errCtxt ctxtMsg $ do
     dt <- validDatatype dtRaw env
     flip evalStateT env $ do
@@ -184,19 +265,19 @@ checkProof prop (ParseCases dtRaw onRaw casesRaw) env = errCtxt ctxtMsg $ do
       where
         missingCase caseNames = find (\(name, _) -> name `notElem` caseNames) (dtConss dt)
 
-    validateCase dt on env pc = errCtxt (text "Case" <+> quotes (unparseRawTerm $ pcCons pc)) $ do
+    validateCase dt on env ParseCase{pcCons = pcc, pcBody = pcb} = errCtxt (text "Case" <+> quotes (unparseRawTerm pcc)) $ do
         flip evalStateT env $ do
-            caseT <- state (variantFixesTerm $ pcCons pc)
+            caseT <- state (variantFixesTerm pcc)
             (consName, _) <- lift $ validConsCase caseT dt
 
-            when (isJust $ pcToShow pc) $
+            when (isJust $ pcbToShow pcb) $
                 lift $ errStr "Superfluous 'To show'"
 
-            userAssm <- checkPcAssms on caseT $ pcAssms pc
+            userAssm <- checkPcAssms on caseT $ pcbAssms pcb
 
             modify (\env -> env { axioms = userAssm : axioms env })
             env <- get
-            Prop _ _ <- lift $ checkProof prop (pcProof pc) env
+            Prop _ _ <- lift $ checkProof prop (pcbProof pcb) env
             return consName
 
     checkPcAssms :: Term -> Term -> [Named RawProp] -> StateT Env Err (Named Prop)
@@ -223,9 +304,9 @@ validConsCase :: Term -> DataType -> Err (String, [(TConsArg, IdxName)])
 validConsCase t (DataType _ conss) = errCtxt invCaseMsg $ do
     (consName, consArgs) <- findCons cons
     argNames <- traverse argName args
-    when (not $ nub args == args) $
+    unless (nub args == args) $
         errStr "Constructor arguments must be distinct"
-    when (not $ length args == length consArgs) $
+    unless (length args == length consArgs) $
         errStr "Invalid number of arguments"
     return (consName, zip consArgs argNames)
   where
@@ -262,18 +343,17 @@ validEqnSeqq rules (EqnSeqq es1 Nothing) = validEqnSeq rules es1
 validEqnSeqq rules (EqnSeqq es1 (Just es2)) = do
     Prop th1 tl1 <- validEqnSeq rules es1
     Prop th2 tl2 <- validEqnSeq rules es2
-    case tl1 == tl2 of
-        True -> return (Prop th1 th2)
-        False -> errCtxtStr "Two equation chains don't fit together:" $
+    if tl1 == tl2 then return (Prop th1 th2)
+    else errCtxtStr "Two equation chains don't fit together:" $
             err $ unparseTerm tl1 $+$ text symPropEq $+$ unparseTerm tl2
 
 rewriteTop :: Term -> Prop -> Maybe Term
-rewriteTop t (Prop lhs rhs) = fmap (subst rhs) $ match t lhs []
+rewriteTop t (Prop lhs rhs) = subst rhs <$> match t lhs []
 
 rewrite :: Term -> Prop -> [Term]
 rewrite t@(Application f a) prop =
     maybeToList (rewriteTop t prop)
-    ++ map (\x -> Application x a) (rewrite f prop)
+    ++ map (`Application` a) (rewrite f prop)
     ++ map (Application f) (rewrite a prop)
 rewrite t prop = maybeToList $ rewriteTop t prop
 
@@ -282,5 +362,5 @@ rewritesTo rules l r = l == r || rewrites l r || rewrites r l
   where rewrites from to = any (\x -> isJust $ match to x []) $ concatMap (rewrite from) rules
 
 rewritesToWith :: String -> [Named Prop] -> Term -> Term -> Bool
-rewritesToWith name rules l r = rewritesTo (f rules) l r
+rewritesToWith name rules = rewritesTo (f rules)
   where f = map namedVal . filter (\x -> namedName x == name)

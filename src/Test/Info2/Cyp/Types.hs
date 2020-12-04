@@ -51,8 +51,8 @@ instance Functor EqnSeqq where
     fmap f (EqnSeqq x y) = EqnSeqq (fmap f x) (fmap f <$> y)
 
 instance Traversable EqnSeqq where
-    traverse f (EqnSeqq x Nothing) = EqnSeqq <$> (traverse f x) <*> pure Nothing
-    traverse f (EqnSeqq x (Just y)) = EqnSeqq <$> (traverse f x) <*> (Just <$> traverse f y)
+    traverse f (EqnSeqq x Nothing) = EqnSeqq <$> traverse f x <*> pure Nothing
+    traverse f (EqnSeqq x (Just y)) = EqnSeqq <$> traverse f x <*> (Just <$> traverse f y)
 
 
 eqnSeqFromList :: a -> [(Parsec.SourcePos, String,a)] -> EqnSeq a

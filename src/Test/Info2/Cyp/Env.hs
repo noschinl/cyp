@@ -22,7 +22,7 @@ declEnv :: Env
 declEnv = Env { datatypes = [], axioms = [], constants = [], fixes = M.empty, goals = [] }
 
 interpretTerm :: Env -> RawTerm -> Term
-interpretTerm env rt = fmap f rt
+interpretTerm env = fmap f
   where
     f v = case M.lookup v (fixes env) of
         Nothing -> (v, 0)
@@ -31,11 +31,11 @@ interpretTerm env rt = fmap f rt
 interpretProp :: Env -> RawProp -> Prop
 interpretProp env = propMap (interpretTerm env)
 
-variantFixes :: [String] -> Env ->  ([IdxName], Env)
+variantFixes :: [String] -> Env -> ([IdxName], Env)
 variantFixes xs env = (xs', env')
   where
     ins free = M.insertWith (\_ n -> n + 1) free 0
-    fixes' = foldl (\e v -> ins v e) (fixes env) xs
+    fixes' = foldl (flip ins) (fixes env) xs
     env' = env { fixes = fixes' }
     xs' = map (\x -> (x, M.findWithDefault 0 x fixes')) xs
 
@@ -48,7 +48,7 @@ declareTerm :: RawTerm -> Env -> (Term, Env)
 declareTerm rt env = (interpretTerm env' rt, env')
   where
     ins free = M.insertWith (\_ n -> n) free 0
-    fixes' = foldl (\e v -> ins v e) (fixes env) $ collectFrees rt []
+    fixes' = foldl (flip ins) (fixes env) $ collectFrees rt []
     env' = env { fixes = fixes' }
 
 declareProp :: RawProp -> Env -> (Prop, Env)

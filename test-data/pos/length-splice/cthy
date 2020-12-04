@@ -1,0 +1,13 @@
+data List a = [] | a : List a
+
+splice [] ys = ys
+splice (x:xs) ys = x : splice ys xs
+
+length [] = 0
+length (x:xs) = 1 + length xs
+
+axiom addComm: x + y .=. y + x
+axiom addAssoc: x + (y + z) .=. (x + y) + z
+axiom zeroAdd: 0 + x .=. x
+
+goal length (splice xs ys) .=. length xs + length ys

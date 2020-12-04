@@ -35,7 +35,7 @@ instance IsTest NegCypTest where
     Cyp.proofFile (theory t) (proof t) >>= \case
       Left failure -> do
         contents <- readFile expected
-        let doc = foldr ($+$) empty $ map text $ lines contents
+        let doc = foldr (($+$) . text) empty $ lines contents
         return $
           if contents /= render failure then
             testFailed $ render $
