@@ -73,7 +73,7 @@ checkProof _ ParseCheating _ = err $ text "Cheating detected"
 checkProof prop (ParseEquation reqns) env = errCtxtStr "Equational proof" $ do
     let (eqns, env') = runState (traverse (state . declareTerm) reqns) env
     proved <- validEqnSeqq (axioms env') eqns
-    when (prop /= proved) $ err $
+    when (prop /= proved && Prop (propRhs prop) (propLhs prop) /= proved) $ err $
         text "Proved proposition does not match goal:" `indent` unparseProp proved
     return proved
 

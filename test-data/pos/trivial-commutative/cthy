@@ -1,0 +1,3 @@
+declare_sym (++)
+
+axiom app_snoc: xs ++ [x] .=. (x:xs)
