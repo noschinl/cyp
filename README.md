@@ -47,7 +47,7 @@ A proof file can contain an arbitrary number of lemmas. Proofs of later lemmas c
 Lemma: <lhs> .=. <rhs>
 ```
 
-where `<lhs>` and `<rhs>` are arbitrary Haskell expressions. cyp supports plain equational proofs as well as proofs by structural or computation induction. An equational proof is introduced by the
+where `<lhs>` and `<rhs>` are arbitrary Haskell expressions. cyp supports plain equational proofs as well as proofs by structural or computation induction. An **equational proof** is introduced by the
 ```
 Proof
 ```
@@ -78,7 +78,7 @@ The proof is then concluded by
 ``` 
 QED
 ```
-A proof by structural induction is introduced by the line
+A proof by **structural induction** is introduced by the line
 ```
 Proof by induction on <type> <var>
 ```
@@ -100,7 +100,7 @@ and a list of equations, like for an equational proof. The induction hypothesis 
 QED
 ```
 
-Proofs by computation inductions are introduced by the line
+Proofs by **computation induction** are introduced by the line
 ```
 Proof by computation induction on <args> with <func>
 ```
