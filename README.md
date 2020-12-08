@@ -47,7 +47,7 @@ A proof file can contain an arbitrary number of lemmas. Proofs of later lemmas c
 Lemma: <lhs> .=. <rhs>
 ```
 
-where `<lhs>` and `<rhs>` are arbitrary Haskell expressions. cyp supports plain equational proofs as well as proofs by (structural induction). A equational proof is introduced by the
+where `<lhs>` and `<rhs>` are arbitrary Haskell expressions. cyp supports plain equational proofs as well as proofs by structural or computation induction. An equational proof is introduced by the
 ```
 Proof
 ```
@@ -77,7 +77,7 @@ The proof is then concluded by
 ``` 
 QED
 ```
-An induction proof is introduced by the line
+A proof by structural induction is introduced by the line
 ```
 Proof by induction on <type> <var>
 ```
@@ -85,11 +85,33 @@ where `<var>` is the Variable on which we want to perform induction on `<type>` 
 ```
 Case <con>
 ```
-
-followed by a list of equations, like for an equational proof. Again, the proof is concluded by:
+After that, the corresponding subgoal and if needed, an induction hypothesis have to be stated:
+```
+To show: <subgoal>
+IH: <induction hypothesis>
+```
+followed by the keyword 
+```
+Proof
+```
+and a list of equations, like for an equational proof. Again, the proof is concluded by:
 ```
 QED
 ```
+
+Proofs by computation inductions are introduced by the line
+```
+Proof by computation induction on <args> with <func>
+```
+where `<func>` is the name of the function we want to perform induction on and `<args>` its formal parameters. For each defining equation of `<func>`, there has to be a line
+```
+Case <number>
+```
+where `<number>` indicates the number of the respective equation. Once again, the matching subgoal, the induction hypothesis' if required and the `Proof` keyword are needed. Then, a list of equations follows and the proof is concluded by
+```
+QED
+```
+For another overview on cyp syntax and some intuition behind proofs, refer to the [cheatsheet](cheatsheet.md).
 
 ## Known limitations
 
