@@ -117,3 +117,4 @@ For another overview on cyp syntax and some intuition behind proofs, refer to th
 ## Known limitations
 
   * There is no check that the functions defined in the background theory terminate (on finite inputs). The focus of this tool is checking the proofs of students against some known-to-be-good background theory.
+  * Proofs by computation induction are currently only possible with functions that are defined without recursive calls in if-branches.
