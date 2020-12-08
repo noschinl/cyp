@@ -1,4 +1,4 @@
-# Proving fun stuff with **CYP**! 
+## Proving fun stuff with **CYP**! 
 
 Basic proof structure in .cprf:
 * state your lemma/goal
@@ -10,10 +10,11 @@ Rules may be:
 * function/data type definitions: `(by def something)`
 * lemmas we have already proven `(by lemma_name)`
 * an induction hypothesis: `(by IH)`
+* an assumption in a case analysis: `(by Assumption)`
 
 ---
 
-## Equality Proof
+### Equality Proof
 Either directly transform the left side into the right...
 
     Lemma <optional name>: <left_side> .=. <right_side>
@@ -38,7 +39,7 @@ Either directly transform the left side into the right...
 
 ---
 
-## Structural Induction
+### Structural Induction
 
 Note that...
 * we typically have one case per constructor
@@ -69,7 +70,7 @@ General proof structure:
 
 ---
 
-## Computation Induction
+### Computation Induction
 
 Think: induction over recursion depth!
 Note that...
@@ -107,3 +108,25 @@ If more than one induction hypothesis is needed, we conventionally number them:
     IH2: ...
 
 Disclaimer: cyp currently does not support computational inductions with functions where a recursive call occurs in an `if`-statement. Keep that in mind in case you want to come up with your own proofs for practice!
+
+---
+
+### Case analysis
+
+Sometimes we need to consider different cases with regards to the constructor of some variable in our proof. If so, we can do a case analysis on the datatype in question:
+
+    Proof by case analysis on <data_type> <variable_name>
+
+    Case <constructor>
+        Assumption: <variable_name> .=. <constructor>
+
+        Proof
+            ...
+        QED
+    
+    Case <other_constructor>
+        ...
+    
+    QED
+
+
