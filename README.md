@@ -72,6 +72,7 @@ Each term must be given on a separate line and be indented by at least one space
 
   * The first term is equal to `<lhs>` and the last term is equal to `<rhs>`
   * All steps in the equation list are valid. A step `<term a> .=. <term b>` is valid if `<term a>` can be rewritten to `<term b>` (or vice versa) by applying a single equation (either from the background-theory or from one of the previously proven lemmas).
+  * A `<reason>` is either an available lemma (`<name>`) or the definition of a function or data type (`def <name>`) 
 
 The proof is then concluded by
 ``` 
@@ -94,7 +95,7 @@ followed by the keyword
 ```
 Proof
 ```
-and a list of equations, like for an equational proof. Again, the proof is concluded by:
+and a list of equations, like for an equational proof. The induction hypothesis may now also be given as reason (`(by IH)`). Again, the proof is concluded by:
 ```
 QED
 ```
